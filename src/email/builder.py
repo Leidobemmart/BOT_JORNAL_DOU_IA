@@ -74,26 +74,36 @@ class EmailBuilder:
             'reply_to': from_email  # Usar mesmo email para resposta
         }
     
-    def _prepare_recipients(self) -> EmailRecipients:
-        """Prepara a lista de destinatários."""
-        # Usar lista de config.yml como base
-        to_emails = self.email_config.to.copy()
-        
-        # Adicionar emails de variáveis de ambiente (se houver)
-        env_to = self.env_config.get('to_emails', [])
-        for email in env_to:
-            if email not in to_emails:
-                to_emails.append(email)
-        
-        # Carregar CC e BCC das variáveis de ambiente
-        cc_emails = self.env_config.get('cc_emails', [])
-        bcc_emails = self.env_config.get('bcc_emails', [])
-        
-        return EmailRecipients(
-            to=to_emails,
-            cc=cc_emails,
-            bcc=bcc_emails
-        )
+def _prepare_recipients(self) -> EmailRecipients:
+    """Prepara a lista de destinatários."""
+    # Usar lista do config.yml como base
+    to_emails = self.email_config.to.copy()
+    cc_emails = self.email_config.cc.copy() if self.email_config.cc else []
+    bcc_emails = self.email_config.bcc.copy() if self.email_config.bcc else []
+    
+    # Adicionar emails de variáveis de ambiente (se houver)
+    env_config = EnvEmailConfig.from_env()
+    
+    env_to = env_config.get('to_emails', [])
+    for email in env_to:
+        if email not in to_emails:
+            to_emails.append(email)
+    
+    # CC e BCC do ambiente sobrescrevem config.yml
+    env_cc = env_config.get('cc_emails', [])
+    env_bcc = env_config.get('bcc_emails', [])
+    
+    # Prioridade: env vars > config.yml
+    if env_cc:
+        cc_emails = env_cc
+    if env_bcc:
+        bcc_emails = env_bcc
+    
+    return EmailRecipients(
+        to=to_emails,
+        cc=cc_emails,
+        bcc=bcc_emails
+    )
     
     def _prepare_from_email(self) -> str:
         """Prepara o email do remetente."""
