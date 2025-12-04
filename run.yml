@@ -1,1 +1,161 @@
+# ------------------------------------------------------------------
+# run.yml - Workflow do GitHub Actions para o robô DOU
+# ------------------------------------------------------------------
 
+name: Run DOU Bot
+
+on:
+  # Execução automática agendada (horário em UTC)
+  schedule:
+    # 08:15 BRT (UTC-3) = 11:15 UTC
+    - cron: '15 11 * * *'
+
+  # Disparo manual
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: 'Force test email (send even with no findings)'
+        default: 'false'
+      period:
+        description: 'Search period override: today | week | month | any'
+        default: ''
+      debug:
+        description: 'Enable debug logging'
+        default: 'false'
+
+jobs:
+  run-dou-bot:
+    runs-on: ubuntu-latest
+    
+    # Permissões para commit do seen.json
+    permissions:
+      contents: write
+
+    steps:
+      # 1) Checkout do código
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2) Configurar Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3) Cache de dependências
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      # 4) Instalar dependências
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 5) Instalar Playwright browsers
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install --with-deps chromium
+
+      # 6) Configurar variáveis de ambiente
+      - name: Set environment variables
+        run: |
+          # Configuração SMTP obrigatória
+          echo "SMTP_HOST=${{ secrets.SMTP_HOST }}" >> $GITHUB_ENV
+          echo "SMTP_PORT=${{ secrets.SMTP_PORT }}" >> $GITHUB_ENV
+          echo "SMTP_USER=${{ secrets.SMTP_USER }}" >> $GITHUB_ENV
+          echo "SMTP_PASS=${{ secrets.SMTP_PASS }}" >> $GITHUB_ENV
+
+          # Destinatários (opcional - sobrescreve config.yml)
+          if [ -n "${{ secrets.MAIL_TO }}" ]; then
+            echo "MAIL_TO=${{ secrets.MAIL_TO }}" >> $GITHUB_ENV
+          fi
+          
+          # CC (opcional)
+          if [ -n "${{ secrets.MAIL_CC }}" ]; then
+            echo "MAIL_CC=${{ secrets.MAIL_CC }}" >> $GITHUB_ENV
+          fi
+          
+          # BCC (opcional)
+          if [ -n "${{ secrets.MAIL_BCC }}" ]; then
+            echo "MAIL_BCC=${{ secrets.MAIL_BCC }}" >> $GITHUB_ENV
+          fi
+
+          # Remetente (opcional)
+          if [ -n "${{ secrets.MAIL_FROM }}" ]; then
+            echo "MAIL_FROM=${{ secrets.MAIL_FROM }}" >> $GITHUB_ENV
+          fi
+
+          # IA (opcional)
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ secrets.HF_TOKEN }}" ]; then
+            echo "HF_TOKEN=${{ secrets.HF_TOKEN }}" >> $GITHUB_ENV
+          fi
+
+          # Overrides para execução manual
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Email de teste
+            if [ "${{ github.event.inputs.test_email }}" = "true" ]; then
+              echo "FORCE_TEST_EMAIL=true" >> $GITHUB_ENV
+            fi
+            
+            # Override de período
+            if [ -n "${{ github.event.inputs.period }}" ]; then
+              echo "PERIOD_OVERRIDE=${{ github.event.inputs.period }}" >> $GITHUB_ENV
+            fi
+            
+            # Debug logging
+            if [ "${{ github.event.inputs.debug }}" = "true" ]; then
+              echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
+            fi
+          fi
+          
+          # Log level padrão
+          if [ -z "$LOG_LEVEL" ]; then
+            echo "LOG_LEVEL=INFO" >> $GITHUB_ENV
+          fi
+        shell: bash
+
+      # 7) Verificar configuração
+      - name: Check configuration
+        run: |
+          python test_config.py
+        continue-on-error: false
+
+      # 8) Executar robô
+      - name: Run DOU bot
+        run: |
+          python -u src/main.py 2>&1 | tee bot.log
+        continue-on-error: true
+
+      # 9) Upload de logs
+      - name: Upload execution logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-logs
+          path: |
+            bot.log
+            artifacts/
+
+      # 10) Commit do estado (seen.json)
+      - name: Commit state (seen.json)
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if [[ -n "$(git status --porcelain state/)" ]]; then
+            git add state/seen.json
+            git commit -m "chore: update seen.json [skip ci]"
+            git push
+            echo "✅ Estado atualizado"
+          else
+            echo "✅ Nenhuma alteração no estado"
+          fi
+        shell: bash
