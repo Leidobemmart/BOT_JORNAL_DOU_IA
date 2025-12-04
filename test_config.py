@@ -13,7 +13,7 @@ if str(src_path) not in sys.path:
 
 from core.logger import setup_logging
 from core.config import Config
-from email.builder import EmailBuilder
+from email_module.builder import EmailBuilder
 from email.sender import EmailSender, SMTPConfig, EmailConfig as EnvEmailConfig
 
 def test_smtp_connection():
