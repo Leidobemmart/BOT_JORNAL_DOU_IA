@@ -5,7 +5,7 @@ Templates de email para o boletim DOU.
 import html
 from datetime import datetime
 from typing import List, Dict, Any
-from ..models.publication import Publication
+from .models.publication import Publication
 
 
 class EmailTemplates:
