@@ -103,13 +103,15 @@ class SearchConfig:
             max_pages=config_dict.get('pagination', {}).get('max_pages', 5)
         )
 
-
 @dataclass
 class EmailConfig:
     """Configuração de email."""
     subject_prefix: str
     to: List[str]
     from_: str
+    cc: Optional[List[str]] = None  # NOVO
+    bcc: Optional[List[str]] = None  # NOVO
+    smtp_config: Optional[Dict[str, Any]] = None
     
     @classmethod
     def from_dict(cls, config_dict: dict) -> 'EmailConfig':
@@ -119,9 +121,11 @@ class EmailConfig:
         return cls(
             subject_prefix=email_cfg.get('subject_prefix', '[DOU]'),
             to=email_cfg.get('to', []),
-            from_=email_cfg.get('from_', '')
+            from_=email_cfg.get('from_', ''),
+            cc=email_cfg.get('cc', []),  # NOVO
+            bcc=email_cfg.get('bcc', []),  # NOVO
+            smtp_config=email_cfg.get('smtp', {})
         )
-
 
 @dataclass  
 class AIConfig:
