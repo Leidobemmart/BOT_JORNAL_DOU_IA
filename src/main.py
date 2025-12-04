@@ -149,4 +149,150 @@ class DOUBot:
             raise
             
         finally:
-            #
+            # Garantir que o navegador seja fechado
+            if self.browser:
+                await self.browser.close()
+    
+    async def _enrich_publications(self, raw_publications):
+        """Enriquece as publicações com metadados e conteúdo."""
+        publications = []
+        
+        for raw in raw_publications:
+            try:
+                # Obter conteúdo completo da página
+                html_content = await self.scraper.get_page_content(raw['url'])
+                
+                # Extrair conteúdo limpo e metadados
+                result = self.extractor.extract(html_content, raw['url'])
+                
+                # Criar objeto Publication
+                pub = Publication(
+                    url=raw['url'],
+                    titulo=result.get('titulo') or raw.get('titulo', 'Sem título'),
+                    orgao=result.get('orgao'),
+                    tipo=result.get('tipo'),
+                    numero=result.get('numero'),
+                    data=result.get('data'),
+                    secao=result.get('secao'),
+                    pagina=result.get('pagina'),
+                    texto_bruto=result.get('texto_bruto'),
+                    texto_limpo=result.get('texto_limpo')
+                )
+                
+                if pub.is_valid:
+                    publications.append(pub)
+                    
+            except Exception as e:
+                self.logger.warning(f"Erro ao enriquecer publicação {raw.get('url')}: {e}")
+                continue
+        
+        return publications
+    
+    def _apply_filters(self, publications):
+        """Aplica filtros configurados às publicações."""
+        filtered = []
+        filters_cfg = self.config.filters
+        
+        for pub in publications:
+            # Verificar palavras-chave no título
+            if not self._passes_title_filter(pub.titulo, filters_cfg.get('title_keywords')):
+                continue
+            
+            # Verificar palavras-chave no órgão
+            if not self._passes_orgao_filter(pub.orgao, filters_cfg.get('orgao_keywords')):
+                continue
+            
+            # Verificar filtro de data (edição do dia)
+            if self.config.search.period in ['today', 'dia'] and pub.data:
+                from utils.validators import parse_br_date
+                from datetime import datetime
+                
+                today = datetime.now().strftime("%d/%m/%Y")
+                if pub.data != today:
+                    continue
+            
+            filtered.append(pub)
+        
+        return filtered
+    
+    def _passes_title_filter(self, title, keywords):
+        """Verifica se o título passa no filtro."""
+        from utils.validators import title_contains_keywords
+        return title_contains_keywords(title, keywords)
+    
+    def _passes_orgao_filter(self, orgao, keywords):
+        """Verifica se o órgão passa no filtro."""
+        from utils.validators import orgao_contains_keywords
+        return orgao_contains_keywords(orgao, keywords)
+    
+    async def _generate_summaries(self, publications):
+        """Gera resumos IA para as publicações."""
+        for pub in publications:
+            try:
+                if pub.texto_limpo:
+                    summary = await self.summarizer.summarize(
+                        pub.texto_limpo,
+                        {
+                            'tipo': pub.tipo,
+                            'numero': pub.numero,
+                            'orgao': pub.orgao,
+                            'data': pub.data
+                        }
+                    )
+                    if summary:
+                        pub.resumo_ia = summary
+                        
+            except Exception as e:
+                self.logger.warning(f"Erro ao gerar resumo para {pub.titulo}: {e}")
+        
+        return publications
+    
+    async def _handle_no_results(self):
+        """Lida com cenário de nenhum resultado encontrado."""
+        # Forçar email de teste se configurado
+        if os.getenv('FORCE_TEST_EMAIL', '').lower() in ['1', 'true', 'yes']:
+            self.logger.info("Enviando email de teste (FORCE_TEST_EMAIL)")
+            
+            test_pub = Publication(
+                url="https://www.in.gov.br",
+                titulo="E-mail de teste do robô DOU",
+                tipo="Aviso",
+                data=datetime.now().strftime("%d/%m/%Y"),
+                texto_limpo="Este é um email de teste enviado porque não foram encontradas publicações relevantes."
+            )
+            
+            email_content = self.email_builder.build([test_pub])
+            await self.email_sender.send(email_content)
+    
+    def cleanup(self):
+        """Limpeza de recursos."""
+        self.logger.info("Realizando limpeza...")
+
+
+async def main():
+    """Função principal assíncrona."""
+    bot = DOUBot()
+    
+    try:
+        bot.initialize()
+        await bot.run()
+        
+    except KeyboardInterrupt:
+        bot.logger.info("Interrupção pelo usuário")
+        sys.exit(130)
+        
+    except Exception as e:
+        bot.logger.error(f"Erro fatal: {e}")
+        sys.exit(1)
+        
+    finally:
+        bot.cleanup()
+
+
+if __name__ == "__main__":
+    # Configurar asyncio para Windows se necessário
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # Executar robô
+    asyncio.run(main())
