@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Any
 import yaml
 
-from ..models.publication import SearchConfig, EmailConfig, AIConfig
+from models.publication import SearchConfig, EmailConfig, AIConfig
 
 
 class Config:
