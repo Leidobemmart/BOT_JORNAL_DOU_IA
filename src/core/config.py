@@ -1,1 +1,1 @@
-
+# Carregamento de configuração
