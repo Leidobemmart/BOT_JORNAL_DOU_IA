@@ -154,12 +154,24 @@ email:
   to:
     - #"karine.batista@martinelliaud.com.br"
     - "diogo.neis@martinelliaud.com.br"
-    - "dvneis@gmail.com"
+    
     #- "gustavo@martinelliaud.com.br"
+    
+  # CC e BCC podem ser configurados apenas via variáveis de ambiente
+  # MAIL_CC = copia1@exemplo.com,copia2@exemplo.com
+  cc: - "dvneis@gmail.com"
+  # MAIL_BCC = copia-oculta@exemplo.com
 
   # Remetente padrão (pode ser sobrescrito via MAIL_FROM em env)
   from_: "monitor.lotes.martinelliaud@gmail.com"
 
+# Configurações adicionais (opcional)
+  smtp:
+    host: "smtp.gmail.com"  # Pode ser sobrescrito via SMTP_HOST
+    port: 587               # Pode ser sobrescrito via SMTP_PORT
+    timeout: 30
+    use_tls: true
+    
 # ------------------------------------------------------------------
 # Configuração da IA (resumos automáticos via Hugging Face)
 # ------------------------------------------------------------------
