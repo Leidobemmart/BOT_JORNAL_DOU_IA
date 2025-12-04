@@ -1,1 +1,196 @@
 # Configuração principal
+# ------------------------------------------------------------------
+# config.yml - Configuração do robô de monitoramento do DOU
+#
+# Estratégia:
+# - Rodar 1x ao dia após a atualização do DOU.
+# - Focar na "edição do dia" (period: today), com filtro de data no código.
+# - Seção padrão: Seção 1 (do1).
+# - Buscas focadas em temas fiscais/tributários, incentivos e normas contábeis.
+# - IA (Hugging Face) opcional para resumir cada publicação.
+# ------------------------------------------------------------------
+
+search:
+  # Termos/frases a serem buscados no DOU
+  phrases:
+    # ---------------------------
+    # Incentivos, P&D e Lei do Bem
+    # ---------------------------
+    - "Lei nº 11.196"
+    - "Lei 11.196/2005"
+    - "Lei do Bem"
+    - "Capítulo III, da Lei nº 11.196"
+
+    # Lei da Informática / TICs / ZFM / Rota 2030
+    - "Lei nº 8.248"
+    - "Lei da Informática"
+    - "Rota 2030"
+    - "Portaria MCTI"
+
+    # ---------------------------
+    # Tributos federais principais
+    # ---------------------------
+    - "IRPJ"
+    - "CSLL"
+    - "IRPF"
+    - "PIS"
+    - "PIS/Pasep"
+    - "COFINS"
+    - "IPI"
+    - "IOF"
+    - "CIDE"
+    - "ITR"
+
+    # --------------------------------------
+    # Obrigações acessórias / SPED / créditos
+    # --------------------------------------
+    - "DCTF"
+    - "DCTFWeb"
+    - "ECD"
+    - "Escrituração Contábil Digital"
+    - "ECF"
+    - "Escrituração Contábil Fiscal"
+    - "EFD-Reinf"
+    - "EFD-Contribuições"
+    - "SPED"
+    - "PER/DCOMP"
+
+    # ---------------------------
+    # Normas contábeis (CPC / NBC)
+    # ---------------------------
+    - "Pronunciamento Técnico CPC"
+    - "Comitê de Pronunciamentos Contábeis"
+    - "CPC "
+    - "NBC TG"
+    - "Norma Brasileira de Contabilidade"
+
+    # ---------------------------
+    # Guarda-chuva fiscal geral
+    # ---------------------------
+    - "legislação tributária"
+    - "legislação fiscal"
+    - "regime tributário"
+    - "tratamento tributário"
+
+  # Enriquecer cada item abrindo a matéria (órgão, tipo, número, data, texto_bruto)
+  enrich_listing: true
+
+  # Período lógico da busca:
+  # - today : edição do dia (padrão)
+  # - week  : última semana
+  # - month : último mês
+  # - any   : qualquer período
+  #
+  # main.py converte "today" em exactDate=dia + filtro pela data de hoje.
+  period: today
+
+  # days_window: janela de dias usada apenas para informação no e-mail
+  days_window: 1
+
+  # Seções do DOU:
+  #   - "do1"  : Seção 1
+  #   - "do2"  : Seção 2
+  #   - "do3"  : Seção 3
+  #   - "todos": todas as seções
+  #
+  # Padrão: apenas Seção 1 (onde saem as normas principais).
+  sections: ["do1"]
+
+  # Rótulo amigável da seção, usado no texto do e-mail
+  section_label: "Edição do dia – Seção 1"
+
+pagination:
+  # Número máximo de páginas de resultados por combinação (frase x seção)
+  max_pages: 5
+
+filters:
+  # URLs que queremos aceitar como "página de matéria" do DOU
+  accept_url_patterns:
+    - "^https://www\\.in\\.gov\\.br/(web/dou/-/|materia/-/)"
+
+  # Substrings de URLs que queremos descartar (menus, JS, etc.)
+  reject_url_substrings:
+    - "consulta/-/buscar/dou"
+    - "/web/guest/"
+    - "/leiturajornal"
+    - "javascript:"
+    - "#"
+    - "acesso-"
+    - "govbr"
+
+  # Palavras-chave que devem aparecer no TÍTULO para considerar relevante
+  # (atos normativos e decisões com impacto fiscal/tributário)
+  title_keywords:
+    - "INSTRUÇÃO NORMATIVA"
+    - "INSTRUCAO NORMATIVA"
+    - "PORTARIA"
+    - "RESOLUÇÃO"
+    - "RESOLUCAO"
+    - "DESPACHO"
+    - "ATO DECLARATÓRIO"
+    - "ATO DECLARATORIO"
+    - "SOLUÇÃO DE CONSULTA"
+    - "SOLUCAO DE CONSULTA"
+    - "SOLUÇÃO DE DIVERGÊNCIA"
+    - "SOLUCAO DE DIVERGENCIA"
+    - "DESPACHO DECISÓRIO"
+    - "DESPACHO DECISORIO"
+    - "COMUNICADO"
+
+  # Filtro opcional por órgão (deixe comentado se quiser pegar geral)
+  # orgao_keywords:
+  #   - "Receita Federal do Brasil"
+  #   - "Secretaria Especial da Receita Federal do Brasil"
+  #   - "Ministério da Fazenda"
+  #   - "Banco Central do Brasil"
+  #   - "Ministério da Ciência, Tecnologia e Inovação"
+  #   - "Conselho Nacional de Política Fazendária"
+
+email:
+  # Prefixo do assunto do e-mail
+  subject_prefix: "[DOU Fiscal/Tributário]"
+
+  # Destinatários padrão (podem ser sobrescritos via MAIL_TO em env)
+  to:
+    - #"karine.batista@martinelliaud.com.br"
+    - "diogo.neis@martinelliaud.com.br"
+    - "dvneis@gmail.com"
+    #- "gustavo@martinelliaud.com.br"
+
+  # Remetente padrão (pode ser sobrescrito via MAIL_FROM em env)
+  from_: "monitor.lotes.martinelliaud@gmail.com"
+
+# ------------------------------------------------------------------
+# Configuração da IA (resumos automáticos via Hugging Face)
+# ------------------------------------------------------------------
+ai:
+  summaries:
+    enabled: true
+    provider: "hf-inference"   # agora é ignorado, mas não atrapalha
+    model: "recogna-nlp/ptt5-base-summ-xlsum"
+    max_chars_input: 5000
+    max_tokens_output: 200     # hoje não usamos na chamada, só como meta
+    timeout_sec: 90            # também não usamos diretamente
+
+# Adicionar à seção ai existente
+ai:
+  summaries:
+    enabled: true
+    provider: "gemini"  # gemini | hf | fallback
+    model: "gemini-1.5-flash"  # ou outro modelo
+    max_chars_input: 4000
+    timeout_sec: 30
+    max_retries: 3
+    
+    # Configurações específicas por provedor
+    gemini:
+      temperature: 0.2
+      max_tokens: 300
+      
+    huggingface:
+      temperature: 0.3
+      max_new_tokens: 200
+      
+    fallback:
+      min_summary_length: 50
+      max_summary_length: 250
