@@ -1,0 +1,1 @@
+# Extração limpa de conteúdo
