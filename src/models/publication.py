@@ -4,7 +4,7 @@ Data classes para representar publicações do DOU.
 """
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List
+from typing import Dict, Any, Optional, List, Union, Tuple
 
 @dataclass
 class Publication:
