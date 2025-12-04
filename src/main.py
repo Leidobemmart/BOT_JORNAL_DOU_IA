@@ -36,7 +36,7 @@ from scraper.browser import BrowserManager
 from scraper.dou_scraper import DOUScraper
 from scraper.extractor import ContentExtractor
 from ai.summarizer import Summarizer
-from email.builder import EmailBuilder
+from email_module.builder import EmailBuilder
 from email.sender import EmailSender, SMTPConfig
 from models.publication import Publication
 
