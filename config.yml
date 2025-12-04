@@ -13,9 +13,7 @@
 search:
   # Termos/frases a serem buscados no DOU
   phrases:
-    # ---------------------------
     # Incentivos, P&D e Lei do Bem
-    # ---------------------------
     - "Lei nº 11.196"
     - "Lei 11.196/2005"
     - "Lei do Bem"
@@ -27,9 +25,7 @@ search:
     - "Rota 2030"
     - "Portaria MCTI"
 
-    # ---------------------------
     # Tributos federais principais
-    # ---------------------------
     - "IRPJ"
     - "CSLL"
     - "IRPF"
@@ -41,9 +37,7 @@ search:
     - "CIDE"
     - "ITR"
 
-    # --------------------------------------
     # Obrigações acessórias / SPED / créditos
-    # --------------------------------------
     - "DCTF"
     - "DCTFWeb"
     - "ECD"
@@ -55,36 +49,30 @@ search:
     - "SPED"
     - "PER/DCOMP"
 
-    # ---------------------------
     # Normas contábeis (CPC / NBC)
-    # ---------------------------
     - "Pronunciamento Técnico CPC"
     - "Comitê de Pronunciamentos Contábeis"
     - "CPC "
     - "NBC TG"
     - "Norma Brasileira de Contabilidade"
 
-    # ---------------------------
     # Guarda-chuva fiscal geral
-    # ---------------------------
     - "legislação tributária"
     - "legislação fiscal"
     - "regime tributário"
     - "tratamento tributário"
 
-  # Enriquecer cada item abrindo a matéria (órgão, tipo, número, data, texto_bruto)
+  # Enriquecer cada item abrindo a matéria
   enrich_listing: true
 
-  # Período lógico da busca:
+  # Período da busca:
   # - today : edição do dia (padrão)
   # - week  : última semana
   # - month : último mês
   # - any   : qualquer período
-  #
-  # main.py converte "today" em exactDate=dia + filtro pela data de hoje.
   period: today
 
-  # days_window: janela de dias usada apenas para informação no e-mail
+  # Janela de dias (apenas informativo no email)
   days_window: 1
 
   # Seções do DOU:
@@ -92,23 +80,21 @@ search:
   #   - "do2"  : Seção 2
   #   - "do3"  : Seção 3
   #   - "todos": todas as seções
-  #
-  # Padrão: apenas Seção 1 (onde saem as normas principais).
   sections: ["do1"]
 
-  # Rótulo amigável da seção, usado no texto do e-mail
+  # Rótulo amigável da seção
   section_label: "Edição do dia – Seção 1"
 
 pagination:
-  # Número máximo de páginas de resultados por combinação (frase x seção)
+  # Número máximo de páginas de resultados
   max_pages: 5
 
 filters:
-  # URLs que queremos aceitar como "página de matéria" do DOU
+  # URLs aceitáveis como "página de matéria"
   accept_url_patterns:
     - "^https://www\\.in\\.gov\\.br/(web/dou/-/|materia/-/)"
 
-  # Substrings de URLs que queremos descartar (menus, JS, etc.)
+  # URLs a rejeitar
   reject_url_substrings:
     - "consulta/-/buscar/dou"
     - "/web/guest/"
@@ -118,8 +104,7 @@ filters:
     - "acesso-"
     - "govbr"
 
-  # Palavras-chave que devem aparecer no TÍTULO para considerar relevante
-  # (atos normativos e decisões com impacto fiscal/tributário)
+  # Palavras-chave no TÍTULO
   title_keywords:
     - "INSTRUÇÃO NORMATIVA"
     - "INSTRUCAO NORMATIVA"
@@ -137,7 +122,7 @@ filters:
     - "DESPACHO DECISORIO"
     - "COMUNICADO"
 
-  # Filtro opcional por órgão (deixe comentado se quiser pegar geral)
+  # Filtro opcional por órgão (comente para desativar)
   # orgao_keywords:
   #   - "Receita Federal do Brasil"
   #   - "Secretaria Especial da Receita Federal do Brasil"
@@ -147,62 +132,66 @@ filters:
   #   - "Conselho Nacional de Política Fazendária"
 
 email:
-  # Prefixo do assunto do e-mail
+  # Prefixo do assunto
   subject_prefix: "[DOU Fiscal/Tributário]"
 
-  # Destinatários padrão (podem ser sobrescritos via MAIL_TO em env)
+  # Destinatários principais (TO)
   to:
-    - #"karine.batista@martinelliaud.com.br"
     - "diogo.neis@martinelliaud.com.br"
-    
-    #- "gustavo@martinelliaud.com.br"
-    
-  # CC e BCC podem ser configurados apenas via variáveis de ambiente
-  # MAIL_CC = copia1@exemplo.com,copia2@exemplo.com
-  cc: - "dvneis@gmail.com"
-  # MAIL_BCC = copia-oculta@exemplo.com
+    # - "karine.batista@martinelliaud.com.br"
+    # - "gustavo@martinelliaud.com.br"
 
-  # Remetente padrão (pode ser sobrescrito via MAIL_FROM em env)
+  # Cópia (CC) - pode ser sobrescrito via MAIL_CC
+  cc:
+    - "dvneis@gmail.com"
+    # - "outro-cc@exemplo.com"
+
+  # Cópia oculta (BCC) - pode ser sobrescrito via MAIL_BCC
+  bcc:
+    # - "copia-oculta@exemplo.com"
+    # - "backup@exemplo.com"
+
+  # Remetente
   from_: "monitor.lotes.martinelliaud@gmail.com"
 
-# Configurações adicionais (opcional)
+  # Configuração SMTP (pode ser sobrescrita via env vars)
   smtp:
-    host: "smtp.gmail.com"  # Pode ser sobrescrito via SMTP_HOST
-    port: 587               # Pode ser sobrescrito via SMTP_PORT
+    host: "smtp.gmail.com"
+    port: 587
     timeout: 30
     use_tls: true
-    
-# ------------------------------------------------------------------
-# Configuração da IA (resumos automáticos via Hugging Face)
-# ------------------------------------------------------------------
-ai:
-  summaries:
-    enabled: true
-    provider: "hf-inference"   # agora é ignorado, mas não atrapalha
-    model: "recogna-nlp/ptt5-base-summ-xlsum"
-    max_chars_input: 5000
-    max_tokens_output: 200     # hoje não usamos na chamada, só como meta
-    timeout_sec: 90            # também não usamos diretamente
 
-# Adicionar à seção ai existente
+# ------------------------------------------------------------------
+# Configuração da IA (resumos automáticos)
+# ------------------------------------------------------------------
 ai:
   summaries:
+    # Ativar/desativar resumos
     enabled: true
-    provider: "gemini"  # gemini | hf | fallback
-    model: "gemini-1.5-flash"  # ou outro modelo
+    
+    # Provedor: "gemini" | "hf" | "fallback"
+    provider: "gemini"
+    
+    # Modelo específico por provedor
+    model: "gemini-1.5-flash"  # Para Gemini
+    # model: "recogna-nlp/ptt5-base-summ-xlsum"  # Para Hugging Face
+    
+    # Limites
     max_chars_input: 4000
     timeout_sec: 30
     max_retries: 3
     
-    # Configurações específicas por provedor
+    # Configurações específicas do Gemini
     gemini:
       temperature: 0.2
       max_tokens: 300
       
+    # Configurações específicas do Hugging Face
     huggingface:
       temperature: 0.3
       max_new_tokens: 200
       
+    # Configurações do fallback (sem IA)
     fallback:
       min_summary_length: 50
       max_summary_length: 250
