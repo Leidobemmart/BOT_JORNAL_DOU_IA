@@ -3,11 +3,35 @@
 Carregamento e validação de configuração.
 """
 import os
+import sys
 from pathlib import Path
 from typing import Dict, Any
 import yaml
 
-from models.publication import SearchConfig, EmailConfig, AIConfig
+# CORREÇÃO CRÍTICA: Ajustar o path para importações corretas
+# Adiciona o diretório src ao sys.path se não estiver presente
+current_dir = Path(__file__).parent
+project_root = current_dir.parent.parent  # src/core -> src -> projeto
+src_path = current_dir.parent  # src/core -> src
+
+# Adiciona o src ao path do Python
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+try:
+    from models.publication import SearchConfig, EmailConfig, AIConfig
+except ImportError as e:
+    # Fallback: tenta importar de forma relativa
+    try:
+        # Tenta importar do diretório acima (src)
+        sys.path.insert(0, str(project_root))
+        from src.models.publication import SearchConfig, EmailConfig, AIConfig
+    except ImportError:
+        # Último fallback: importa diretamente
+        try:
+            from ..models.publication import SearchConfig, EmailConfig, AIConfig
+        except ImportError:
+            raise ImportError(f"Não foi possível importar models.publication: {e}")
 
 
 class Config:
@@ -22,8 +46,6 @@ class Config:
         
     def _get_default_config_path(self) -> Path:
         """Retorna o caminho padrão para o config.yml."""
-        current_dir = Path(__file__).parent
-        project_root = current_dir.parent.parent  # src/core -> src -> projeto
         return project_root / "config.yml"
     
     def load(self) -> Dict[str, Any]:
@@ -81,9 +103,18 @@ class Config:
     
     def get_smtp_config(self) -> Dict[str, Any]:
         """Retorna a configuração SMTP das variáveis de ambiente."""
+        host = os.getenv('SMTP_HOST')
+        port_str = os.getenv('SMTP_PORT', '587')
+        
+        # Tratar conversão de porta com segurança
+        try:
+            port = int(port_str) if port_str else 587
+        except ValueError:
+            port = 587
+        
         return {
-            'host': os.getenv('SMTP_HOST'),
-            'port': int(os.getenv('SMTP_PORT', '587')),
+            'host': host,
+            'port': port,
             'user': os.getenv('SMTP_USER'),
             'password': os.getenv('SMTP_PASS')
         }
@@ -103,9 +134,17 @@ class Config:
             
             # Verificar configuração SMTP
             smtp_config = self.get_smtp_config()
-            if not all(smtp_config.values()):
-                missing = [k for k, v in smtp_config.items() if not v]
-                raise ValueError(f"Configuração SMTP incompleta: {missing}")
+            missing_fields = []
+            for key, value in smtp_config.items():
+                if key == 'port':
+                    # Porta tem valor padrão, só verifica se não é None
+                    if value is None:
+                        missing_fields.append(key)
+                elif not value:  # Para host, user, password
+                    missing_fields.append(key)
+            
+            if missing_fields:
+                raise ValueError(f"Configuração SMTP incompleta: {missing_fields}")
             
             return True
             
