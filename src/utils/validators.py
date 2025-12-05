@@ -6,6 +6,26 @@ import re
 from typing import List, Pattern
 from datetime import datetime
 
+def compile_accept_patterns(patterns: List[str]) -> List[Pattern]:
+    """
+    Compila lista de strings regex em padrões regex.
+    
+    Args:
+        patterns: Lista de padrões em string
+    
+    Returns:
+        Lista de regex compiladas
+    """
+    compiled = []
+    for p in patterns:
+        if not p:
+            continue
+        try:
+            compiled.append(re.compile(p))
+        except re.error:
+            # Se quiser logar ou apenas ignorar padrão inválido
+            continue
+    return compiled
 
 def should_reject_url(url: str, reject_patterns: List[str]) -> bool:
     """
