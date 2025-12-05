@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-# Adicionar src ao path
+# ADIÇÃO CRÍTICA: Adicionar src ao path do Python para resolver imports
 src_path = Path(__file__).parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
@@ -14,7 +14,7 @@ if str(src_path) not in sys.path:
 from core.logger import setup_logging
 from core.config import Config
 from email_module.builder import EmailBuilder
-from email_module.sender import EmailSender, SMTPConfig, EmailConfig as EnvEmailConfig  # CORRIGIDO
+from email_module.sender import EmailSender, SMTPConfig, EmailConfig as EnvEmailConfig
 
 def test_smtp_connection():
     """Testa conexão SMTP."""
