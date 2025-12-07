@@ -9,7 +9,7 @@ import logging
 from typing import Optional, Dict, Any
 from tenacity import retry, wait_exponential, stop_after_attempt
 
-from ..models.publication import AIConfig
+from models.publication import AIConfig
 
 logger = logging.getLogger(__name__)
 
