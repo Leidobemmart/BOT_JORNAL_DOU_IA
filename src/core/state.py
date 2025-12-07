@@ -65,7 +65,7 @@ class StateManager:
     
     def add(self, publication) -> None:
         """Adiciona uma publicação ao estado."""
-        from ..models.publication import Publication
+        from models.publication import Publication
         
         if isinstance(publication, Publication):
             url = publication.url
