@@ -18,20 +18,8 @@ src_path = current_dir.parent  # src/core -> src
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-try:
-    from models.publication import SearchConfig, EmailConfig, AIConfig
-except ImportError as e:
-    # Fallback: tenta importar de forma relativa
-    try:
-        # Tenta importar do diretório acima (src)
-        sys.path.insert(0, str(project_root))
-        from src.models.publication import SearchConfig, EmailConfig, AIConfig
-    except ImportError:
-        # Último fallback: importa diretamente
-        try:
-            from ..models.publication import SearchConfig, EmailConfig, AIConfig
-        except ImportError:
-            raise ImportError(f"Não foi possível importar models.publication: {e}")
+from models.publication import SearchConfig, EmailConfig, AIConfig
+
 
 
 class Config:
