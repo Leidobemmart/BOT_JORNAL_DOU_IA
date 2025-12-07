@@ -6,7 +6,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from ..models.publication import Publication, EmailConfig as EmailConfigModel
+from models.publication import Publication, EmailConfig as EmailConfigModel
 from .templates import EmailTemplates
 from .sender import EmailSender, EmailRecipients, EmailConfig as EnvEmailConfig
 
