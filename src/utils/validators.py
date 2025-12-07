@@ -8,6 +8,22 @@ from datetime import datetime
 
 def compile_accept_patterns(patterns: List[str]) -> List[Pattern]:
     """
+    Compila uma lista de padrões em regex.
+    """
+    compiled = []
+    for p in patterns:
+        if not p:
+            continue
+        try:
+            compiled.append(re.compile(p))
+        except re.error:
+            # Se quiser, pode logar o erro aqui
+            continue
+    return compiled
+
+
+def compile_accept_patterns(patterns: List[str]) -> List[Pattern]:
+    """
     Compila lista de strings regex em padrões regex.
     
     Args:
