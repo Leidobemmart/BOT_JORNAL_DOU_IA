@@ -142,6 +142,18 @@ jobs:
           path: |
             bot.log
             artifacts/
+      - name: Testando estrutura do projeto
+        run: |
+          echo "🧪 Testando estrutura do projeto."
+          python -c "
+      import sys, os
+      sys.path.append('src')
+      from core.config import Config
+      from core.state import StateManager
+      from models.publication import Publication
+      print('✅ Imports funcionando')
+      "
+
 
       # 10) Commit do estado (seen.json)
       - name: Commit state (seen.json)
