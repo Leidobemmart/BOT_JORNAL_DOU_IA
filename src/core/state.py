@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Set, List, Optional
 import logging
 
+from models.publication import Publication
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,26 +67,18 @@ class StateManager:
     
     def add(self, publication) -> None:
         """Adiciona uma publicação ao estado."""
-        from models.publication import Publication
-        
         if isinstance(publication, Publication):
             url = publication.url
             pub_id = publication.extract_id()
         elif isinstance(publication, str):
             url = publication
-            pub_id = None
+            pub_id = publication
         else:
-            raise ValueError("Tipo inválido para publicação")
-        
-        # Adicionar chave da URL
-        url_key = f"url:{url}"
-        self._seen.add(url_key)
-        
-        # Adicionar chave do ID se disponível
-        if pub_id:
-            id_key = f"id:{pub_id}"
-            self._seen.add(id_key)
-    
+            logger.warning(f"Tipo de publicação não suportado: {type(publication)}")
+            return
+
+        self._seen.add(pub_id)
+        logger.debug(f"Adicionado ao estado: {pub_id}")    
     def add_batch(self, publications) -> None:
         """Adiciona múltiplas publicações ao estado."""
         for pub in publications:
@@ -92,30 +86,15 @@ class StateManager:
     
     def contains(self, publication) -> bool:
         """Verifica se uma publicação já foi vista."""
-        from ..models.publication import Publication
-        
         if isinstance(publication, Publication):
-            url = publication.url
             pub_id = publication.extract_id()
         elif isinstance(publication, str):
-            url = publication
-            pub_id = None
+            pub_id = publication
         else:
+            logger.warning(f"Tipo de publicação não suportado: {type(publication)}")
             return False
-        
-        # Verificar por URL
-        url_key = f"url:{url}"
-        if url_key in self._seen:
-            return True
-        
-        # Verificar por ID
-        if pub_id:
-            id_key = f"id:{pub_id}"
-            if id_key in self._seen:
-                return True
-        
-        return False
-    
+
+        return pub_id in self._seen    
     def filter_unseen(self, publications: List) -> List:
         """Filtra apenas publicações não vistas."""
         return [pub for pub in publications if not self.contains(pub)]
