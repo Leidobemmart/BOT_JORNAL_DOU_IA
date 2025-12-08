@@ -120,21 +120,53 @@ class BrowserManager:
         """Configura event listeners para debugging."""
         if not self.page:
             return
-        
+
         # Listener para requisições falhas
-        self.page.on("requestfailed", lambda request: logger.debug(
-            f"Request falhou: {request.url} - {request.failure.error_text}"
-        ))
-        
-        # Listener para console messages
+        def on_request_failed(request):
+            try:
+                # Em Playwright Python, normalmente é um método: failure()
+                failure = None
+                if hasattr(request, "failure"):
+                    try:
+                        # Se for chamável (método), chama
+                        if callable(request.failure):
+                            failure = request.failure()
+                        else:
+                            failure = request.failure
+                    except Exception:
+                        failure = request.failure
+
+                # Extrair texto de erro de forma segura
+                if isinstance(failure, dict):
+                    error_text = (
+                        failure.get("errorText")
+                        or failure.get("error_text")
+                        or str(failure)
+                    )
+                elif isinstance(failure, str):
+                    error_text = failure
+                elif failure is not None:
+                    error_text = getattr(failure, "error_text", None) or str(failure)
+                else:
+                    error_text = "motivo desconhecido"
+
+                logger.debug(f"Request falhou: {request.url} - {error_text}")
+            except Exception as e:
+                # Garantia extra: não deixar o handler derrubar o processo
+                logger.debug(f"Erro no handler de requestfailed: {e}")
+
+        self.page.on("requestfailed", on_request_failed)
+
+        # Listener para console messages (mantém igual)
         self.page.on("console", lambda msg: logger.debug(
             f"Console [{msg.type}]: {msg.text}"
         ))
-        
-        # Listener para page errors
+
+        # Listener para page errors (mantém igual)
         self.page.on("pageerror", lambda error: logger.error(
             f"Erro na página: {error}"
         ))
+
     
     async def new_page(self) -> Page:
         """Cria uma nova página no mesmo contexto."""
