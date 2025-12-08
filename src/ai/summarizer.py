@@ -8,15 +8,8 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any
 from tenacity import retry, wait_exponential, stop_after_attempt
+from models.publication import AIConfig
 
-# src/ai/summarizer.py
-
-try:
-    # Quando src está no sys.path e ai/models são "top-level"
-    from models.publication import AIConfig
-except ImportError:
-    # Fallback para quando o pacote é importado como src.ai.summarizer
-    from ..models.publication import AIConfig
 
 logger = logging.getLogger(__name__)
 
