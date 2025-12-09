@@ -45,6 +45,7 @@ async def _run_bot() -> None:
         phrases=cfg.search.phrases or ["tratamento tributário"],  # fallback
         sections=cfg.search.sections or ["do1"],
         period=cfg.search.period,
+        max_pages=cfg.search.max_pages,
     )
 
     publications = await scraper.search()
