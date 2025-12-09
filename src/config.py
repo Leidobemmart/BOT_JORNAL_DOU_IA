@@ -50,11 +50,28 @@ def load_config(config_path: Path | None = None) -> AppConfig:
 
     # ---- search ----
     search_cfg_raw = raw_cfg.get("search", {}) or {}
+
+    # max_pages pode vir de:
+    # - search.max_pages (novo formato)
+    # - ou pagination.max_pages (formato antigo)
+    pagination_cfg_raw = raw_cfg.get("pagination", {}) or {}
+    max_pages_cfg = search_cfg_raw.get("max_pages", pagination_cfg_raw.get("max_pages", 1))
+
+    try:
+        max_pages = int(max_pages_cfg)
+    except (TypeError, ValueError):
+        max_pages = 1
+
+    if max_pages < 1:
+        max_pages = 1
+
     search = SearchConfig(
         phrases=list(search_cfg_raw.get("phrases") or []),
         sections=list(search_cfg_raw.get("sections") or ["do1"]),
         period=str(search_cfg_raw.get("period") or "today"),
+        max_pages=max_pages,
     )
+
 
     # ---- ai ----
     ai_cfg_raw = raw_cfg.get("ai", {}) or {}
