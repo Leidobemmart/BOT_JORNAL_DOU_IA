@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Set
 
-from .models import Publication
+from .publication import Publication  # << aqui é o modelo novo
 
 logger = logging.getLogger(__name__)
 
