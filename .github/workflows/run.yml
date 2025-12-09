@@ -1,94 +1,74 @@
-name: DOU Bot
+name: Run DOU Bot
 
 on:
+  # Execução automática agendada (horário em UTC)
   schedule:
-    # Executa todo dia útil às 07:00 BRT (≈ 10:00 UTC)
-    - cron: '0 10 * * 1-5'
+    # 08:15 BRT (UTC-3) = 11:15 UTC
+    - cron: '15 11 * * *'
+
+  # Disparo manual
   workflow_dispatch:
     inputs:
-      force_test_email:
-        description: 'Enviar APENAS email de teste (FORCE_TEST_EMAIL)'
-        required: false
+      test_email:
+        description: 'Enviar apenas e-mail de teste (true/false)'
         default: 'false'
-
-concurrency:
-  group: dou-bot
-  cancel-in-progress: false
+      debug:
+        description: 'Ativar logs em DEBUG (true/false)'
+        default: 'false'
 
 jobs:
   run-dou-bot:
     runs-on: ubuntu-latest
 
     env:
-      PYTHONUNBUFFERED: "1"
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
-
-      # Caminho do código
-      PYTHONPATH: "${{ github.workspace }}/src"
-
-      # Config de log
-      LOG_LEVEL: "INFO"
-
-      # Controle de email de teste (lê em src/main.py)
-      FORCE_TEST_EMAIL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_test_email || 'false' }}
-
-      # SMTP / Email - configure como secrets do repositório
+      # === SMTP (sempre em secrets) ===
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
-      SMTP_USE_TLS: ${{ secrets.SMTP_USE_TLS }}
 
-      MAIL_FROM: ${{ secrets.MAIL_FROM }}
-      MAIL_TO: ${{ secrets.MAIL_TO }}
-      MAIL_CC: ${{ secrets.MAIL_CC }}
-      MAIL_BCC: ${{ secrets.MAIL_BCC }}
-
-      # IA (opcionais)
+      # === IA (opcional, para o futuro) ===
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_TOKEN:       ${{ secrets.HF_TOKEN }}
+
+      # === Emails (NÃO em secrets; ajuste para os reais) ===
+      EMAIL_FROM: "monitor.lotes.martinelliaud@gmail.com"
+      EMAIL_TO:   "diogo.neis@martinelliaud.com.br"
+      EMAIL_CC:   "dvneis@gmail.com"
+      EMAIL_BCC:  #"bcc@gmail.com"
 
     steps:
-      - name: Checkout do código
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Instalar dependências
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Garante que o Playwright está disponível
-          pip install playwright
-          python -m playwright install chromium
 
-      - name: Validar config.yml
+      - name: Install Playwright browsers
         run: |
-          python - << 'PY'
-          import sys
-          from pathlib import Path
+          python -m playwright install --with-deps chromium
 
-          # Adiciona src ao sys.path
-          src_path = Path("src").resolve()
-          if str(src_path) not in sys.path:
-              sys.path.insert(0, str(src_path))
-
-          from core.config import Config  # usa src/core/config.py
-
-          config_path = Path("config.yml")
-          if not config_path.exists():
-              raise SystemExit("config.yml não encontrado na raiz do repositório")
-
-          cfg = Config(config_path)
-          cfg.load()
-          cfg.validate()
-          print("✅ config.yml carregado e validado com sucesso")
-          PY
-
-      - name: Executar robô DOU
+      - name: Run DOU bot
+        env:
+          # Herdar env do job + sobrescrever FORCE_TEST_EMAIL e LOG_LEVEL
+          FORCE_TEST_EMAIL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.test_email || 'false' }}
+          LOG_LEVEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug == 'true' && 'DEBUG' || 'INFO' }}
         run: |
-          echo "🚀 Iniciando robô DOU..."
-          python src/main.py
+          echo "FORCE_TEST_EMAIL = $FORCE_TEST_EMAIL"
+          echo "LOG_LEVEL = $LOG_LEVEL"
+          python -m src.bot 2>&1 | tee bot.log
+
+      - name: Upload execution logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-logs
+          path: |
+            bot.log
