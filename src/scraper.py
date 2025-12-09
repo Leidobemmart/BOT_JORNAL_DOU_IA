@@ -2,25 +2,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable, List, Dict
+from typing import Iterable, List, Dict, Any
 
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Page
 
 from .publication import Publication
 from .utils import build_direct_query_url, absolutize, is_materia_url
 
 logger = logging.getLogger(__name__)
 
-
-# Seletores CSS para resultados de busca (simplificados)
-RESULT_SELECTORS = [
-    "a.resultado-item-titulo",
-    "a[href*='/web/dou/-/']",
-    "a[href*='/materia/']",
-    "div.resultado-item a",
-    ".resultado-titulo a",
-]
 
 # Textos que indicam "nenhum resultado"
 NO_RESULTS_TEXTS = [
@@ -34,11 +25,12 @@ NO_RESULTS_TEXTS = [
 
 class DouScraper:
     """
-    Scraper simplificado do DOU.
+    Scraper do DOU usando Playwright.
 
-    - Usa Playwright para abrir a página de resultados
-    - Usa BeautifulSoup para extrair links de matérias
-    - Por enquanto, pega apenas a PRIMEIRA PÁGINA de resultados
+    - Abre a página de busca para cada combinação frase + seção
+    - Lê os resultados a partir do JSON em
+      <script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params">
+    - Percorre até max_pages páginas (tentando clicar em "Próxima")
     """
 
     def __init__(
@@ -59,6 +51,11 @@ class DouScraper:
 
         if self.max_pages < 1:
             self.max_pages = 1
+
+        if not self.phrases:
+            self.phrases = ['"tratamento tributário"']
+        if not self.sections:
+            self.sections = ["do1"]
 
         logger.info(
             "DouScraper inicializado: %d frase(s), %d seção(ões), período=%s, max_pages=%d",
@@ -110,7 +107,7 @@ class DouScraper:
 
                             page_html = await page.content()
 
-                            # Na primeira página, checar se não há resultados
+                            # Primeira página: checar se não há resultados
                             if page_index == 1 and self._has_no_results(page_html):
                                 logger.info(
                                     "Nenhum resultado para frase=%r seção=%s",
@@ -119,7 +116,7 @@ class DouScraper:
                                 )
                                 break
 
-                            pubs = self._extract_results_from_html(page_html, section)
+                            pubs = await self._collect_page_results(page, page_html, section)
                             logger.info(
                                 "Encontradas %d publicação(ões) na página %d para frase=%r seção=%s",
                                 len(pubs),
@@ -131,6 +128,17 @@ class DouScraper:
                             for pub in pubs:
                                 if pub.url not in results_by_url:
                                     results_by_url[pub.url] = pub
+
+                            # Se não achou nada nesta página, não faz sentido tentar avançar mais
+                            if not pubs:
+                                logger.info(
+                                    "Nenhuma publicação na página %d; parando paginação "
+                                    "para frase=%r seção=%s",
+                                    page_index,
+                                    phrase,
+                                    section,
+                                )
+                                break
 
                             # Se já atingimos o limite de páginas, parar aqui
                             if page_index >= self.max_pages:
@@ -156,7 +164,7 @@ class DouScraper:
         logger.info("Total de publicações únicas retornadas: %d", len(final_list))
         return final_list
 
-    async def _go_to_next_page(self, page) -> bool:
+    async def _go_to_next_page(self, page: Page) -> bool:
         """
         Tenta navegar para a próxima página de resultados.
 
@@ -165,12 +173,13 @@ class DouScraper:
             False -> não encontrou botão/link de próxima página
         """
         # Tentativas de seletor para botão de "Próxima página".
-        # Isso pode precisar de ajuste conforme o HTML real do DOU.
         candidate_selectors = [
             'a[aria-label*="Próxima"]',
             'a[aria-label*="Próximo"]',
             'a[rel="next"]',
             'a.page-link[rel="next"]',
+            'button[aria-label*="Próxima"]',
+            'button[aria-label*="Próximo"]',
             'text=Próxima',
             'text=Próximo',
         ]
@@ -184,7 +193,6 @@ class DouScraper:
             if btn:
                 try:
                     await btn.click()
-                    # Dar um tempo pra página carregar
                     await page.wait_for_load_state("networkidle")
                     logger.info("Avançou para a próxima página usando seletor: %s", sel)
                     return True
@@ -198,7 +206,6 @@ class DouScraper:
 
         return False
 
-    
     # -----------------------
     #   Helpers internos
     # -----------------------
@@ -210,41 +217,134 @@ class DouScraper:
         lower = html.lower()
         return any(text.lower() in lower for text in NO_RESULTS_TEXTS)
 
+    async def _collect_page_results(
+        self,
+        page: Page,
+        html: str,
+        section: str | None = None,
+    ) -> List[Publication]:
+        """
+        Coleta os resultados da página atual.
+
+        1) Tenta ler o JSON em
+           <script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params">
+           e usar a propriedade jsonArray.
+        2) Se falhar, faz um fallback usando BeautifulSoup e links na página.
+        """
+        publications: List[Publication] = []
+
+        # 1) Tentar via JSON (forma atual do site)
+        js_code = """
+        () => {
+            const elem = document.getElementById("_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params");
+            if (!elem) {
+                return null;
+            }
+            try {
+                const text = elem.textContent || elem.innerHTML;
+                const data = JSON.parse(text);
+                if (!data || !Array.isArray(data.jsonArray)) {
+                    return null;
+                }
+                const base = "https://www.in.gov.br/web/dou/-/";
+                const hits = data.jsonArray;
+
+                return hits.map(hit => {
+                    const orgao = hit.hierarchyStr
+                        || (Array.isArray(hit.hierarchyList)
+                            ? hit.hierarchyList.join(" / ")
+                            : null);
+
+                    return {
+                        url: base + hit.urlTitle,
+                        titulo: hit.title || "",
+                        snippet: hit.content || "",
+                        data: hit.pubDate || "",
+                        secao: hit.pubName || "",
+                        pagina: hit.numberPage || "",
+                        orgao: orgao || "",
+                        art_type: hit.artType || "",
+                        edition: hit.editionNumber || ""
+                    };
+                });
+            } catch (e) {
+                return null;
+            }
+        }
+        """
+
+        hits: List[Dict[str, Any]] | None = None
+        try:
+            hits = await page.evaluate(js_code)
+        except Exception as e:
+            logger.warning("Erro ao avaliar JSON de resultados: %s", e)
+
+        if hits:
+            logger.debug("Coletados %d resultados via JSON (jsonArray).", len(hits))
+            seen_urls = set()
+            for hit in hits:
+                url = (hit.get("url") or "").strip()
+                titulo = (hit.get("titulo") or "").strip()
+                if not url or not titulo:
+                    continue
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+
+                pub = Publication(
+                    title=titulo,
+                    url=url,
+                    section=(hit.get("secao") or section or "").upper() or None,
+                    organ=hit.get("orgao") or None,
+                    # Podemos evoluir depois para parsear a data se for útil
+                )
+                publications.append(pub)
+
+            if publications:
+                return publications
+
+        # 2) Fallback antigo: varrer todos os links da página
+        logger.debug(
+            "Nenhum resultado via JSON; usando fallback BeautifulSoup em links."
+        )
+        publications.extend(self._extract_results_from_html(html, section))
+        return publications
+
     def _extract_results_from_html(
         self,
         html: str,
         section: str | None = None,
     ) -> List[Publication]:
         """
-        Extrai lista de publicações a partir do HTML da página de resultados.
+        Fallback: extrai lista de publicações a partir do HTML da página de resultados,
+        procurando por links de matérias.
         """
         soup = BeautifulSoup(html, "lxml")
         seen = set()
         publications: List[Publication] = []
 
-        for selector in RESULT_SELECTORS:
-            for link in soup.select(selector):
-                href = (link.get("href") or "").strip()
-                title = (link.get_text(strip=True) or "").strip()
+        # Na estrutura atual do site é pouco provável que isso encontre algo,
+        # mas mantemos como plano B.
+        for link in soup.find_all("a", href=True):
+            href = (link.get("href") or "").strip()
+            title = (link.get_text(strip=True) or "").strip()
 
-                if not href or not title:
-                    continue
+            if not href or not title:
+                continue
 
-                url = absolutize(href)
-                if not is_materia_url(url):
-                    # ignora links genéricos de navegação
-                    continue
+            url = absolutize(href)
+            if not is_materia_url(url):
+                continue
 
-                if url in seen:
-                    continue
+            if url in seen:
+                continue
 
-                seen.add(url)
-
-                pub = Publication(
-                    title=title,
-                    url=url,
-                    section=section.upper() if section else None,
-                )
-                publications.append(pub)
+            seen.add(url)
+            pub = Publication(
+                title=title,
+                url=url,
+                section=section.upper() if section else None,
+            )
+            publications.append(pub)
 
         return publications
