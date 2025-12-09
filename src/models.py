@@ -35,7 +35,7 @@ class SearchConfig:
     phrases: List[str] = field(default_factory=list)
     sections: List[str] = field(default_factory=lambda: ["do1"])
     period: str = "today"  # today | week | month | any
-
+    max_pages: int = 1     # NOVO: número máximo de páginas por frase+seção
 
 # ==== Publicações ====
 
