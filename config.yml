@@ -87,7 +87,7 @@ search:
 
 pagination:
   # Número máximo de páginas de resultados
-  max_pages: 15
+  max_pages: 5
 
 filters:
   # URLs aceitáveis como "página de matéria"
