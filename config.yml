@@ -70,7 +70,7 @@ search:
   # - week  : última semana
   # - month : último mês
   # - any   : qualquer período
-  period: week
+  period: any
 
   # Janela de dias (apenas informativo no email)
   days_window: 1
