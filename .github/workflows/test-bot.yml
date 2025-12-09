@@ -20,7 +20,7 @@ jobs:
       EMAIL_CC:   "dvneis@gmail.com"
       EMAIL_BCC:  #"bcc@gmail.com"
 
-      FORCE_TEST_EMAIL: "false" #"true" força email / "false" não
+      FORCE_TEST_EMAIL:  #"true" força email / "false" não
 
     steps:
       - name: Checkout repository
