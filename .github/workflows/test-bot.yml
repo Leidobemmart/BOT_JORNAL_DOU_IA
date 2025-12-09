@@ -15,10 +15,10 @@ jobs:
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
 
       # === Emails (NÃO são secrets) ===
-      EMAIL_FROM: "seu.email@empresa.com.br"
-      EMAIL_TO:   "alguem@empresa.com.br,outro@empresa.com.br"
-      EMAIL_CC:   "cc@empresa.com.br"
-      EMAIL_BCC:  "bcc@gmail.com"
+      EMAIL_FROM: "monitor.lotes.martinelliaud@gmail.com"
+      EMAIL_TO:   "diogo.neis@martinelliaud.com.br"
+      EMAIL_CC:   "dvneis@gmail.com"
+      EMAIL_BCC:  #"bcc@gmail.com"
 
     steps:
       - name: Checkout repository
