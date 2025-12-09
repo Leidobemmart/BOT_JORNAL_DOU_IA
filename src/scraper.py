@@ -46,28 +46,32 @@ class DouScraper:
         phrases: Iterable[str],
         sections: Iterable[str],
         period: str = "today",
+        max_pages: int = 1,
     ) -> None:
         self.phrases = [p for p in phrases if p]
         self.sections = [s for s in sections if s]
         self.period = period or "today"
 
-        if not self.phrases:
-            # fallback bem conservador
-            self.phrases = ['"tratamento tributário"']
+        try:
+            self.max_pages = int(max_pages)
+        except (TypeError, ValueError):
+            self.max_pages = 1
 
-        if not self.sections:
-            self.sections = ["do1"]
+        if self.max_pages < 1:
+            self.max_pages = 1
 
         logger.info(
-            "DouScraper inicializado: %d frase(s), %d seção(ões), período=%s",
+            "DouScraper inicializado: %d frase(s), %d seção(ões), período=%s, max_pages=%d",
             len(self.phrases),
             len(self.sections),
             self.period,
+            self.max_pages,
         )
 
     async def search(self) -> List[Publication]:
         """
         Executa a busca no DOU e retorna uma lista de publicações (apenas cabeçalho).
+        Percorre até max_pages páginas por combinação frase+seção.
         """
         results_by_url: Dict[str, Publication] = {}
 
@@ -94,28 +98,57 @@ class DouScraper:
 
                         await page.goto(search_url, wait_until="networkidle")
 
-                        # Verificar se a página indica "nenhum resultado"
-                        page_html = await page.content()
-                        if self._has_no_results(page_html):
+                        page_index = 1
+                        while page_index <= self.max_pages:
                             logger.info(
-                                "Nenhum resultado para frase=%r seção=%s",
+                                "Processando página %d/%d para frase=%r seção=%s",
+                                page_index,
+                                self.max_pages,
                                 phrase,
                                 section,
                             )
-                            continue
 
-                        pubs = self._extract_results_from_html(page_html, section)
-                        logger.info(
-                            "Encontradas %d publicação(ões) na primeira página "
-                            "para frase=%r seção=%s",
-                            len(pubs),
-                            phrase,
-                            section,
-                        )
+                            page_html = await page.content()
 
-                        for pub in pubs:
-                            if pub.url not in results_by_url:
-                                results_by_url[pub.url] = pub
+                            # Na primeira página, checar se não há resultados
+                            if page_index == 1 and self._has_no_results(page_html):
+                                logger.info(
+                                    "Nenhum resultado para frase=%r seção=%s",
+                                    phrase,
+                                    section,
+                                )
+                                break
+
+                            pubs = self._extract_results_from_html(page_html, section)
+                            logger.info(
+                                "Encontradas %d publicação(ões) na página %d para frase=%r seção=%s",
+                                len(pubs),
+                                page_index,
+                                phrase,
+                                section,
+                            )
+
+                            for pub in pubs:
+                                if pub.url not in results_by_url:
+                                    results_by_url[pub.url] = pub
+
+                            # Se já atingimos o limite de páginas, parar aqui
+                            if page_index >= self.max_pages:
+                                break
+
+                            # Tentar ir para a próxima página
+                            has_next = await self._go_to_next_page(page)
+                            if not has_next:
+                                logger.info(
+                                    "Sem próxima página (parando em %d) para frase=%r seção=%s",
+                                    page_index,
+                                    phrase,
+                                    section,
+                                )
+                                break
+
+                            page_index += 1
+
             finally:
                 await browser.close()
 
@@ -123,6 +156,49 @@ class DouScraper:
         logger.info("Total de publicações únicas retornadas: %d", len(final_list))
         return final_list
 
+    async def _go_to_next_page(self, page) -> bool:
+        """
+        Tenta navegar para a próxima página de resultados.
+
+        Retorna:
+            True  -> conseguiu ir para a próxima página
+            False -> não encontrou botão/link de próxima página
+        """
+        # Tentativas de seletor para botão de "Próxima página".
+        # Isso pode precisar de ajuste conforme o HTML real do DOU.
+        candidate_selectors = [
+            'a[aria-label*="Próxima"]',
+            'a[aria-label*="Próximo"]',
+            'a[rel="next"]',
+            'a.page-link[rel="next"]',
+            'text=Próxima',
+            'text=Próximo',
+        ]
+
+        for sel in candidate_selectors:
+            try:
+                btn = await page.query_selector(sel)
+            except Exception:
+                btn = None
+
+            if btn:
+                try:
+                    await btn.click()
+                    # Dar um tempo pra página carregar
+                    await page.wait_for_load_state("networkidle")
+                    logger.info("Avançou para a próxima página usando seletor: %s", sel)
+                    return True
+                except Exception as e:
+                    logger.warning(
+                        "Falha ao clicar em próxima página com seletor %s: %s",
+                        sel,
+                        e,
+                    )
+                    # tenta o próximo seletor
+
+        return False
+
+    
     # -----------------------
     #   Helpers internos
     # -----------------------
