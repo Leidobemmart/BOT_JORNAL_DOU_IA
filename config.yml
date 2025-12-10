@@ -123,13 +123,13 @@ filters:
     - "COMUNICADO"
 
   # Filtro opcional por órgão (comente para desativar)
-  # orgao_keywords:
-  #   - "Receita Federal do Brasil"
-  #   - "Secretaria Especial da Receita Federal do Brasil"
-  #   - "Ministério da Fazenda"
-  #   - "Banco Central do Brasil"
-  #   - "Ministério da Ciência, Tecnologia e Inovação"
-  #   - "Conselho Nacional de Política Fazendária"
+  orgao_keywords:
+    - "Receita Federal do Brasil"
+    - "Secretaria Especial da Receita Federal do Brasil"
+    - "Ministério da Fazenda"
+    - "Banco Central do Brasil"
+    - "Ministério da Ciência, Tecnologia e Inovação"
+    - "Conselho Nacional de Política Fazendária"
 
 email:
   # Prefixo do assunto
