@@ -58,7 +58,7 @@ def build_direct_query_url(phrase: str, period: str, section_code: str) -> str:
 
     return (
         "https://www.in.gov.br/consulta/-/buscar/dou"
-        f"?douq={phrase_encoded}&s={section_code}&exactDate={exact}&sortType=0"
+        f"?q={phrase_encoded}&s={section_code}&exactDate={exact}&sortType=0"
     )
 
 
