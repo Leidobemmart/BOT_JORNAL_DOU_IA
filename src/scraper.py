@@ -17,37 +17,54 @@ logger = logging.getLogger(__name__)
 
 
 # -------------------------------------------------------------------
-# Helpers de normalização / filtros (copiados do main.py antigo)
+# Helpers de normalização / filtros
 # -------------------------------------------------------------------
-def normalize(txt: str) -> str:
-    t = unidecode((txt or "")).lower()
+def _normalize(text: str) -> str:
+    t = unidecode((text or "")).lower()
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
 
-def looks_like_menu(text: str) -> bool:
-    BAD_ANCHOR_TEXTS = [
-        "Última hora", "Ultima hora",
-        "Últimas 24 horas", "Ultimas 24 horas",
-        "Semana passada", "Mes passado", "Mês passado",
-        "Ano passado", "Período Personalizado", "Periodo Personalizado",
-        "Pesquisa avançada", "Pesquisa Avançada", "Pesquisa",
-        "Verificação de autenticidade", "Voltar ao topo",
-        "Portal", "Tutorial", "Termo de Uso",
-        "Ir para o conteúdo", "Ir para o rodapé",
-        "Acessibilidade", "Mapa do Site",
-        "Imprensa Nacional", "Imprensa nacional",
-        "Governo Federal", "Governo federal",
-        "Navegação", "Institucional",
-        "Contato", "Fale Conosco",
+def _looks_like_menu(text: str) -> bool:
+    """Heurística para descartar links de navegação/menus."""
+    BAD_ANCHORS = [
+        "última hora",
+        "ultimas 24 horas",
+        "últimas 24 horas",
+        "semana passada",
+        "mês passado",
+        "mes passado",
+        "ano passado",
+        "período personalizado",
+        "periodo personalizado",
+        "pesquisa avançada",
+        "pesquisa",
+        "verificação de autenticidade",
+        "voltar ao topo",
+        "portal",
+        "tutorial",
+        "termo de uso",
+        "mapa do site",
+        "imprensa nacional",
+        "governo federal",
+        "navegação",
+        "institucional",
+        "contato",
+        "fale conosco",
+        "ir para o conteúdo",
+        "ir para o rodapé",
+        "acessibilidade",
+        "acesso gov.br",
     ]
-    t = normalize(text)
-    return any(normalize(b) in t for b in BAD_ANCHOR_TEXTS)
+    t = _normalize(text)
+    return any(b in t for b in BAD_ANCHORS)
 
 
-async def deep_collect_anchors(page: Page):
-    # varre DOM + Shadow DOM para achar anchors
-    return await page.evaluate(
+async def _deep_collect_anchors(page: Page) -> List[Dict[str, str]]:
+    """
+    Varre DOM + Shadow DOM coletando todos os anchors com href.
+    """
+    anchors = await page.evaluate(
         """
 () => {
   function collectFrom(root) {
@@ -76,9 +93,16 @@ async def deep_collect_anchors(page: Page):
 }
 """
     )
+    out: List[Dict[str, str]] = []
+    for href, text in anchors:
+        out.append({"href": href, "text": text})
+    return out
 
 
-async def wait_results(page: Page, timeout_ms: int = 20000):
+async def _wait_results(page: Page, timeout_ms: int = 20000) -> None:
+    """
+    Espera até que apareçam resultados ou mensagem de "nenhum resultado".
+    """
     try:
         await page.wait_for_function(
             """
@@ -86,7 +110,7 @@ async def wait_results(page: Page, timeout_ms: int = 20000):
   const hasList =
     document.querySelector('a.resultado-item-titulo') ||
     document.querySelector('a[href*="/web/dou/-/"]') ||
-    document.querySelector('a[href*="/materia/"]');
+    document.querySelector('a[href*="/materia/-/"]');
   const pageText = document.body ? document.body.innerText : '';
   const noRes = /Nenhum resultado|N[ãa]o encontramos resultados/i.test(pageText);
   return Boolean(hasList) || noRes;
@@ -95,79 +119,35 @@ async def wait_results(page: Page, timeout_ms: int = 20000):
             timeout=timeout_ms,
         )
     except Exception:
-        # se der timeout, seguimos assim mesmo
+        # Timeout não é fatal; seguimos com o que houver na página
         return
 
 
-def compile_accept_patterns(cfg: Dict[str, Any]):
-    pats = []
-    for p in cfg.get("filters", {}).get("accept_url_patterns", []):
-        try:
-            pats.append(re.compile(p))
-        except Exception:
-            pass
-    return pats
-
-
-def should_reject_url(url: str, cfg: Dict[str, Any]) -> bool:
-    url_l = (url or "").lower()
-    for sub in cfg.get("filters", {}).get("reject_url_substrings", []):
-        if sub.lower() in url_l:
-            return True
-    return False
-
-
-def title_allowed(title: str, cfg: Dict[str, Any]) -> bool:
-    kws = cfg.get("filters", {}).get("title_keywords", [])
-    if not kws:
-        return True
-    t = (title or "").upper()
-    return any(kw.upper() in t for kw in kws)
-
-
-async def collect_links_from_listing(
-    page: Page,
-    cfg: Dict[str, Any],
-    broad: bool = True,
-) -> List[Dict[str, str]]:
+async def _collect_links_from_listing(page: Page) -> List[Dict[str, str]]:
     """
-    Coleta links da listagem com filtros:
-    - Prioriza 'a.resultado-item-titulo'
-    - Aceita apenas URLs que passem no accept_regex (se houver) e NÃO tenham reject_substrings
-    - Opcionalmente filtra por palavras-chave no título
-    - Fallback profundo (Shadow DOM) se necessário
+    Coleta links da listagem de resultados que pareçam ser matérias do DOU.
     """
-    accept_res = compile_accept_patterns(cfg)
-
-    def accept_url(url: str) -> bool:
-        if not accept_res:
-            return True
-        return any(r.search(url) for r in accept_res)
-
-    discards = {"menu": 0, "reject_url": 0, "no_accept": 0, "no_keyword": 0}
     links: Dict[str, str] = {}
+    discards = {"menu": 0}
 
-    async def consider(href: Optional[str], text: Optional[str]):
+    async def consider(href: Optional[str], text: Optional[str]) -> None:
         nonlocal links, discards
         if not href:
             return
         href = absolutize(href)
         text = (text or "").strip()
-        if looks_like_menu(text):
+
+        # só interessa URLs de matéria
+        if "/web/dou/-/" not in href and "/materia/-/" not in href:
+            return
+
+        if _looks_like_menu(text):
             discards["menu"] += 1
             return
-        if should_reject_url(href, cfg):
-            discards["reject_url"] += 1
-            return
-        if not accept_url(href):
-            discards["no_accept"] += 1
-            return
-        if not title_allowed(text, cfg):
-            discards["no_keyword"] += 1
-            return
+
         links[href] = text or "(sem título)"
 
-    # 1) títulos de resultado principais
+    # 1) Títulos principais da listagem
     try:
         loc = page.locator("a.resultado-item-titulo")
         count = await loc.count()
@@ -180,8 +160,8 @@ async def collect_links_from_listing(
     except Exception:
         pass
 
-    # 2) fallback em qualquer link que pareça matéria
-    if broad and not links:
+    # 2) Fallback: qualquer link que pareça matéria
+    if not links:
         try:
             loc = page.locator('a[href*="/web/dou/-/"], a[href*="/materia/-/"]')
             count = await loc.count()
@@ -194,53 +174,54 @@ async def collect_links_from_listing(
         except Exception:
             pass
 
-    # 3) fallback profundo (Shadow DOM)
+    # 3) Fallback profundo (inclui Shadow DOM)
     if not links:
         try:
-            deep = await deep_collect_anchors(page)
-            for href, text in deep:
-                await consider(href, text)
+            deep = await _deep_collect_anchors(page)
+            for item in deep:
+                await consider(item["href"], item["text"])
         except Exception:
             pass
 
     items = [{"url": u, "titulo": t} for u, t in links.items()]
     logger.debug(
-        "collect_links_from_listing -> %d link(s). Discards=%s",
+        "_collect_links_from_listing -> %d link(s). Discards=%s",
         len(items),
         discards,
     )
     return items
 
 
-async def collect_paginated_results(
+async def _collect_paginated_results(
     page: Page,
-    cfg: Dict[str, Any],
-    broad: bool,
     max_pages: int = 5,
 ) -> List[Dict[str, str]]:
     """
-    Varre as páginas de resultados clicando em "Próximo" ou rolando, até max_pages.
+    Varre paginação clicando em 'Próximo' (quando existir), até max_pages.
     """
     seen_urls: Set[str] = set()
     all_items: List[Dict[str, str]] = []
     page_idx = 1
 
     while True:
-        await wait_results(page, timeout_ms=15000)
-        items = await collect_links_from_listing(page, cfg, broad=broad)
+        await _wait_results(page, timeout_ms=15000)
+        items = await _collect_links_from_listing(page)
+        new_count = 0
         for it in items:
             if it["url"] not in seen_urls:
                 seen_urls.add(it["url"])
                 all_items.append(it)
+                new_count += 1
 
         logger.debug(
-            "page %d: %d itens (acumulado %d)",
+            "Página %d: %d itens, %d novos (total acumulado: %d).",
             page_idx,
             len(items),
+            new_count,
             len(all_items),
         )
 
-        # tentar "Próximo"
+        # Tentar avançar para "Próximo"
         next_clicked = False
         for sel in [
             "a[aria-label*='próxima']",
@@ -253,8 +234,6 @@ async def collect_paginated_results(
             try:
                 loc = page.locator(sel).first
                 if await loc.count() > 0:
-                    href = await loc.get_attribute("href")
-                    logger.debug("tentando avançar: %s", href or sel)
                     await loc.click(timeout=2000)
                     await page.wait_for_load_state("networkidle", timeout=10000)
                     next_clicked = True
@@ -263,7 +242,7 @@ async def collect_paginated_results(
             except Exception:
                 continue
 
-        # fallback: scroll (pode disparar carregamento preguiçoso)
+        # Fallback: pequeno scroll (pode disparar lazy-load)
         if not next_clicked:
             try:
                 before = await page.evaluate("document.body.scrollHeight")
@@ -277,19 +256,20 @@ async def collect_paginated_results(
             except Exception:
                 pass
 
-        # parada: sem novo botão/próxima página ou limite atingido
+        # Parar se não clicou em próximo ou atingiu limite de páginas
         if (not next_clicked) or (page_idx >= max_pages):
             break
 
     return all_items
 
 
-async def resolve_to_materia(page: Page, url: str) -> str:
+async def _resolve_to_materia(page: Page, url: str) -> str:
     """
-    Garante que voltamos com URL de matéria (/web/dou/-/ ou /materia/-/), quando possível.
+    Garante que voltamos com URL que seja claramente de matéria do DOU.
     """
     if "/web/dou/-/" in url or "/materia/-/" in url:
         return url
+
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=25000)
         loc = page.locator('a[href*="/web/dou/-/"], a[href*="/materia/-/"]').first
@@ -299,25 +279,26 @@ async def resolve_to_materia(page: Page, url: str) -> str:
                 return absolutize(href)
     except Exception:
         pass
+
     return url
 
 
-async def enrich_listing_item(page: Page, item: Dict[str, Any]) -> Dict[str, Any]:
+async def _enrich_listing_item(page: Page, item: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Abre o link da listagem, resolve para a MATÉRIA e extrai metadados.
-    SEMPRE tenta devolver link final de /web/dou/-/ ou /materia/-/.
+    Abre a matéria e extrai título, órgão, tipo, número e data (quando possível).
     """
-    final_url = await resolve_to_materia(page, item["url"])
+    final_url = await _resolve_to_materia(page, item["url"])
     try:
         await page.goto(final_url, wait_until="domcontentloaded", timeout=45000)
     except Exception:
+        # Se der erro, devolve só o básico
         return {
             "url": final_url,
             "titulo": item.get("titulo") or "(sem título)",
             "orgao": None,
             "tipo": None,
             "numero": None,
-            "data": datetime.now().strftime("%d/%m/%Y"),
+            "data": None,
         }
 
     html = await page.content()
@@ -325,7 +306,7 @@ async def enrich_listing_item(page: Page, item: Dict[str, Any]) -> Dict[str, Any
 
     titulo = item.get("titulo") or (soup.title.get_text(strip=True) if soup.title else "")
 
-    # órgão (opcional)
+    # órgão (heurísticas)
     orgao = None
     for sel in [".orgao", ".row-orgao", ".info-orgao", "section.orgao", "header .orgao"]:
         el = soup.select_one(sel)
@@ -342,7 +323,11 @@ async def enrich_listing_item(page: Page, item: Dict[str, Any]) -> Dict[str, Any
     numero = None
     full_text = soup.get_text("\n", strip=True)
 
-    m = re.search(r"(Portaria|Resolu[cç][aã]o|Instru[cç][aã]o Normativa|Despacho|Aviso)", full_text, re.I)
+    m = re.search(
+        r"(Portaria|Resolu[cç][aã]o|Instru[cç][aã]o Normativa|Despacho|Aviso)",
+        full_text,
+        re.I,
+    )
     if m:
         tipo = m.group(1).strip()
 
@@ -358,11 +343,13 @@ async def enrich_listing_item(page: Page, item: Dict[str, Any]) -> Dict[str, Any
             data_pub = el.get_text(" ", strip=True)
             break
     if not data_pub:
-        m = re.search(r"Data de public[aç][aã]o:\s*([0-9]{2}/[0-9]{2}/[0-9]{4})", full_text, re.I)
+        m = re.search(
+            r"Data de public[aç][aã]o:\s*([0-9]{2}/[0-9]{2}/[0-9]{4})",
+            full_text,
+            re.I,
+        )
         if m:
             data_pub = m.group(1).strip()
-        else:
-            data_pub = datetime.now().strftime("%d/%m/%Y")
 
     return {
         "url": final_url,
@@ -375,7 +362,7 @@ async def enrich_listing_item(page: Page, item: Dict[str, Any]) -> Dict[str, Any
 
 
 # -------------------------------------------------------------------
-# Classe principal: DouScraper
+# Classe principal
 # -------------------------------------------------------------------
 class DouScraper:
     """
@@ -391,19 +378,11 @@ class DouScraper:
         sections: Iterable[str],
         period: str = "today",
         max_pages: int = 5,
-        accept_url_patterns: Optional[Iterable[str]] = None,
-        reject_url_substrings: Optional[Iterable[str]] = None,
-        title_keywords: Optional[Iterable[str]] = None,
     ) -> None:
         self.phrases: List[str] = [p for p in phrases if p]
         self.sections: List[str] = [s for s in sections if s] or ["do1"]
         self.period: str = period or "today"
         self.max_pages: int = max_pages
-
-        # filtros (em formato próximo ao do main.py)
-        self.accept_url_patterns_raw: List[str] = list(accept_url_patterns or [])
-        self.reject_url_substrings: List[str] = list(reject_url_substrings or [])
-        self.title_keywords: List[str] = list(title_keywords or [])
 
         logger.info(
             "DouScraper inicializado: %d frase(s), %d seção(ões), período=%s, max_pages=%d",
@@ -413,21 +392,8 @@ class DouScraper:
             self.max_pages,
         )
 
-    def _build_filter_cfg(self) -> Dict[str, Any]:
-        """
-        Monta um dicionário de configuração de filtros compatível com
-        as funções herdadas do main.py antigo.
-        """
-        return {
-            "filters": {
-                "accept_url_patterns": self.accept_url_patterns_raw,
-                "reject_url_substrings": self.reject_url_substrings,
-                "title_keywords": self.title_keywords,
-            }
-        }
-
     async def run(self) -> List[Publication]:
-        """Alias amigável."""
+        """Alias amigável para search()."""
         return await self.search()
 
     async def search(self) -> List[Publication]:
@@ -442,7 +408,6 @@ class DouScraper:
         logger.info("Iniciando busca real no DOU (URL direta + paginação)...")
 
         all_pubs: List[Publication] = []
-        cfg_filters = self._build_filter_cfg()
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -456,7 +421,6 @@ class DouScraper:
                             page=page,
                             phrase=phrase,
                             section=section,
-                            cfg=cfg_filters,
                         )
                         all_pubs.extend(pubs)
             finally:
@@ -480,7 +444,6 @@ class DouScraper:
         page: Page,
         phrase: str,
         section: str,
-        cfg: Dict[str, Any],
     ) -> List[Publication]:
         """
         Faz a busca para uma única combinação de frase + seção,
@@ -499,10 +462,8 @@ class DouScraper:
             logger.warning("Falha ao carregar URL de busca: %s", e)
             return []
 
-        items = await collect_paginated_results(
+        items = await _collect_paginated_results(
             page=page,
-            cfg=cfg,
-            broad=True,
             max_pages=self.max_pages,
         )
         logger.info(
@@ -514,7 +475,7 @@ class DouScraper:
 
         pubs: List[Publication] = []
         for it in items:
-            meta = await enrich_listing_item(page, it)
+            meta = await _enrich_listing_item(page, it)
             data_str = meta.get("data")
             pub_date = None
             if data_str:
