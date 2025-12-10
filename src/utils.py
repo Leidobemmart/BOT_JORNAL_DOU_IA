@@ -58,8 +58,9 @@ def build_direct_query_url(phrase: str, period: str, section_code: str) -> str:
 
     return (
         "https://www.in.gov.br/consulta/-/buscar/dou"
-        f"?q={phrase_encoded}&s={section_code}&exactDate={exact}&sortType=0"
+        f"?douq={phrase_encoded}&s={section_code}&exactDate={exact}&sortType=0"
     )
+
 
 
 def absolutize(href: str, base_url: str = "https://www.in.gov.br") -> str:
