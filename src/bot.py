@@ -57,7 +57,10 @@ async def _run_bot() -> None:
         phrases=config.search.phrases,
         sections=config.search.sections,
         period=config.search.period,
-        max_pages=config.search.max_pages,
+        max_pages=config.pagination.max_pages,
+        accept_url_patterns=config.filters.accept_url_patterns,
+        reject_url_substrings=config.filters.reject_url_substrings,
+        title_keywords=config.filters.title_keywords,
     )
 
     logger.info("Executando buscas no DOU...")
