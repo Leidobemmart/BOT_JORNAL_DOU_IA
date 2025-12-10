@@ -60,7 +60,7 @@ async def _run_bot() -> None:
     )
 
     logger.info("Iniciando scraping do DOU...")
-    publications = await scraper.search()
+    publications = await scraper.search_all()
     logger.info("Scraper retornou %d publicação(ões).", len(publications))
 
     # 5) Filtrar apenas publicações novas
