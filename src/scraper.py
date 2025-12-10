@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Iterable, List, Dict, Any, Optional, Set
 
 from bs4 import BeautifulSoup
@@ -13,48 +14,37 @@ from .utils import build_direct_query_url, absolutize, is_materia_url
 
 logger = logging.getLogger(__name__)
 
-# Textos que indicam "nenhum resultado" (case-insensitive, em qualquer parte do HTML)
+# Textos que indicam "nenhum resultado" (case-insensitive)
 NO_RESULTS_TEXTS = [
     "nenhum resultado",
-    "não foram encontrados",
-    "nao foram encontrados",
-    "sua pesquisa não retornou resultados",
-    "sua pesquisa nao retornou resultados",
+    "não foram encontrados resultados",
+    "não foram encontrados registros",
     "0 resultados",
     "nenhum registro encontrado",
     "não encontramos resultados",
-    "nao encontramos resultados",
+    "sua pesquisa não retornou resultados",
 ]
 
-# Seletores HTML usados no fallback quando o JSON não é encontrado
+# Seletores usados no fallback em HTML estático
 RESULT_SELECTORS = [
     "a.resultado-item-titulo",
-    "a[href*='/web/dou/-/']",
-    "a[href*='/materia/']",
     "div.resultado-item a",
     ".resultado-titulo a",
+    "a[href*='/web/dou/-/']",
+    "a[href*='/materia/']",
 ]
 
 
 class DouScraper:
     """
-    Scraper do DOU baseado em:
+    Scraper do DOU usando busca direta por URL.
 
-    1) **Busca direta por URL**:
-       - Usa build_direct_query_url(phrase, period, section_code)
-       - Ex.: https://www.in.gov.br/consulta/-/buscar/dou?q="DCTF"&s=do1&exactDate=all&sortType=0
-
-    2) **Extração de resultados via JSON embutido**:
-       - <script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params" type="application/json">
-         {"jsonArray":[ {...}, {...}, ... ]}
-       - Cada item tem campos como title, urlTitle, pubName, pubDate etc.
-
-    3) **Fallback em HTML**:
-       - Se não achar o JSON ou ele vier vazio, tenta achar links de matéria
-         com BeautifulSoup + is_materia_url().
-
-    A lógica de UI (preencher campo, clicar em "Buscar", etc.) fica como
-    **plano B** futuro, caso o endpoint direto mude.
+    Fluxo:
+      - Monta a URL com build_direct_query_url(...)
+      - Abre com Playwright
+      - Lê o HTML da página
+      - Prioriza o JSON dentro do <script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params">
+      - Se falhar / vier vazio, usa fallback baseado em links HTML
     """
 
     def __init__(
@@ -63,11 +53,22 @@ class DouScraper:
         sections: Iterable[str],
         period: str = "today",
         max_pages: int = 5,
+        accept_url_patterns: Optional[Iterable[str]] = None,
+        reject_url_substrings: Optional[Iterable[str]] = None,
+        title_keywords: Optional[Iterable[str]] = None,
     ) -> None:
         self.phrases: List[str] = [p for p in phrases if p]
         self.sections: List[str] = [s for s in sections if s] or ["do1"]
         self.period: str = period or "today"
         self.max_pages: int = max_pages
+
+        # Filtros opcionais (podem vir do config.yml)
+        self.accept_url_patterns: List[re.Pattern[str]] = [
+            re.compile(p) for p in (accept_url_patterns or [])
+        ]
+        self.reject_url_substrings: List[str] = list(reject_url_substrings or [])
+        # Para comparação case-insensitive
+        self.title_keywords: List[str] = [k.upper() for k in (title_keywords or [])]
 
         logger.info(
             "DouScraper inicializado: %d frase(s), %d seção(ões), período=%s, max_pages=%d",
@@ -81,20 +82,19 @@ class DouScraper:
     # API pública
     # ------------------------------------------------------------------
     async def run(self) -> List[Publication]:
-        """Alias para search_all()."""
+        """Alias amigável para search_all()."""
         return await self.search_all()
 
     async def search_all(self) -> List[Publication]:
         """
-        Executa todas as combinações frase x seção, paginando até max_pages.
-
-        Retorna uma lista de Publication deduplicadas por URL.
+        Executa todas as buscas (todas as frases x seções) e retorna
+        uma lista de publicações únicas (deduplicadas por URL).
         """
         if not self.phrases:
             logger.warning("Nenhuma frase de busca configurada; retornando lista vazia.")
             return []
 
-        logger.info("Iniciando busca real no DOU (link direto)...")
+        logger.info("Iniciando busca real no DOU...")
 
         all_pubs: List[Publication] = []
 
@@ -112,18 +112,18 @@ class DouScraper:
                 await context.close()
                 await browser.close()
 
-        # Deduplicar por URL (Publication.id já usa a URL, mas garantimos aqui)
+        # Deduplicar por URL, preservando ordem
         seen_urls: Set[str] = set()
-        unique: List[Publication] = []
+        unique_pubs: List[Publication] = []
         for pub in all_pubs:
-            url = pub.url
+            url = getattr(pub, "url", None)
             if not url or url in seen_urls:
                 continue
             seen_urls.add(url)
-            unique.append(pub)
+            unique_pubs.append(pub)
 
-        logger.info("Total de publicações únicas retornadas: %d", len(unique))
-        return unique
+        logger.info("Total de publicações únicas retornadas: %d", len(unique_pubs))
+        return unique_pubs
 
     # ------------------------------------------------------------------
     # Busca por combinação (frase + seção)
@@ -135,16 +135,17 @@ class DouScraper:
         section: str,
     ) -> List[Publication]:
         """
-        Roda a busca para uma frase em uma seção, com paginação via parâmetro `page`.
+        Faz a busca para uma única combinação de frase + seção,
+        paginando até max_pages ou até não encontrar mais resultados.
         """
         logger.info("Iniciando busca para frase=%r seção=%s", phrase, section)
 
-        results: List[Publication] = []
-        seen_urls_page: Set[str] = set()
+        all_pubs: List[Publication] = []
 
         for page_index in range(1, self.max_pages + 1):
-            base_url = build_direct_query_url(phrase=phrase, period=self.period, section_code=section)
-            url = base_url if page_index == 1 else f"{base_url}&page={page_index}"
+            url = build_direct_query_url(phrase=phrase, period=self.period, section_code=section)
+            if page_index > 1:
+                url = f"{url}&page={page_index}"
 
             logger.info(
                 "Abrindo URL de busca (página %d/%d): %s",
@@ -153,24 +154,19 @@ class DouScraper:
                 url,
             )
 
-            try:
-                await page.goto(url, wait_until="networkidle", timeout=45000)
-            except Exception as e:
-                logger.error("Erro ao carregar página de busca (%s): %s", url, e)
-                break
+            await page.goto(url, wait_until="networkidle")
+            page_html = await page.content()
 
-            html = await page.content()
-
-            # Primeira página: se houver mensagem clara de "nenhum resultado", sai.
-            if page_index == 1 and self._has_no_results(html):
+            # Primeira página: checar se não há resultados
+            if page_index == 1 and self._has_no_results(page_html):
                 logger.info(
-                    "Nenhum resultado aparente para frase=%r seção=%s (texto de 'nenhum resultado' encontrado).",
+                    "Nenhum resultado aparente para frase=%r seção=%s (detecção por texto).",
                     phrase,
                     section,
                 )
                 break
 
-            pubs = self._collect_page_results(html, section)
+            pubs = self._collect_page_results(page_html, section)
             logger.info(
                 "Encontradas %d publicação(ões) na página %d para frase=%r seção=%s",
                 len(pubs),
@@ -179,68 +175,69 @@ class DouScraper:
                 section,
             )
 
-            # Deduplicação por página (caso o portal repita itens entre páginas)
-            new_pubs: List[Publication] = []
-            for pub in pubs:
-                if pub.url not in seen_urls_page:
-                    seen_urls_page.add(pub.url)
-                    new_pubs.append(pub)
-
-            if not new_pubs:
+            if not pubs:
                 logger.info(
-                    "Nenhuma nova publicação na página %d; parando paginação para frase=%r seção=%s",
+                    "Nenhuma publicação na página %d; parando paginação para frase=%r seção=%s",
                     page_index,
                     phrase,
                     section,
                 )
                 break
 
-            results.extend(new_pubs)
+            all_pubs.extend(pubs)
 
-        return results
+        return all_pubs
 
     # ------------------------------------------------------------------
     # Detecção de "nenhum resultado"
     # ------------------------------------------------------------------
     def _has_no_results(self, html: str) -> bool:
         """
-        Verifica se o HTML contém mensagens de "nenhum resultado".
+        Verifica se o HTML contém mensagens típicas de "nenhum resultado".
         """
         if not html:
             return True
+
         lower = html.lower()
-        return any(marker in lower for marker in NO_RESULTS_TEXTS)
+        for marker in NO_RESULTS_TEXTS:
+            if marker in lower:
+                return True
+        return False
 
     # ------------------------------------------------------------------
-    # Coleta de resultados da página (JSON + fallback HTML)
+    # Coleta de resultados da página
     # ------------------------------------------------------------------
     def _collect_page_results(self, html: str, section: Optional[str]) -> List[Publication]:
         """
-        1) Tenta extrair resultados do JSON no <script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params">
-        2) Se não der certo ou vier vazio, tenta extrair links direto do HTML.
-        """
-        pubs_json = self._extract_from_json_script(html, section)
-        if pubs_json:
-            logger.debug("Coletados %d resultados via JSON embutido.", len(pubs_json))
-            return pubs_json
+        Coleta resultados de uma página de busca.
 
-        logger.debug("Nenhum resultado via JSON; usando fallback por links HTML.")
+        1) Primeiro tenta extrair do JSON dentro do
+           <script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params">
+        2) Se falhar ou vier vazio, cai para o fallback baseado em links (<a href="...">)
+        """
+        pubs_from_json = self._extract_from_json_script(html, section)
+        if pubs_from_json:
+            logger.debug(
+                "Coletados %d resultados via JSON (script params).",
+                len(pubs_from_json),
+            )
+            return pubs_from_json
+
+        logger.debug("Nenhum resultado via JSON; usando fallback BeautifulSoup em links.")
         return self._extract_from_html_links(html, section)
 
     # ------------------------------------------------------------------
-    # 1) Extração via JSON do <script> de parâmetros
+    # 1) Extração via JSON do <script>
     # ------------------------------------------------------------------
     def _extract_from_json_script(self, html: str, section: Optional[str]) -> List[Publication]:
         """
         Extrai resultados a partir do JSON embutido no script de parâmetros
         da busca do DOU.
 
-        O HTML contém algo como:
-
-        <script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params"
-                type="application/json">
-            {"jsonArray":[{...}, {...}, ...]}
-        </script>
+        O HTML da página de busca contém um <script type="application/json">
+        com id "_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params"
+        que possui um objeto com a chave "jsonArray", onde cada item representa
+        uma publicação do DOU.
         """
         soup = BeautifulSoup(html, "lxml")
         script = soup.find(
@@ -259,17 +256,18 @@ class DouScraper:
             logger.warning("Falha ao fazer json.loads no script de resultados: %s", e)
             return []
 
-        hits = data.get("jsonArray") or []
+        hits: List[Dict[str, Any]] = data.get("jsonArray") or []
         if not isinstance(hits, list):
             logger.debug("Campo jsonArray não é uma lista; ignorando.")
             return []
 
         publications: List[Publication] = []
         seen_urls: Set[str] = set()
-
         base_url = "https://www.in.gov.br/web/dou/-/"
 
-        for item in hits:
+        logger.debug("JSON de resultados contém %d item(ns).", len(hits))
+
+        for idx, item in enumerate(hits):
             if not isinstance(item, dict):
                 continue
 
@@ -279,12 +277,18 @@ class DouScraper:
             if not title or not url_title:
                 continue
 
-            # Montar URL absoluta a partir do slug
-            if url_title.startswith("http://") or url_title.startswith("https://"):
-                url = url_title
-            else:
-                slug = url_title.lstrip("/")
-                url = base_url + slug
+            slug = url_title.lstrip("/")
+            url = base_url + slug
+
+            # Filtros de URL
+            if not self._url_aceita(url):
+                logger.debug("Descartando URL (filtro): %s", url)
+                continue
+
+            # Filtro opcional por palavras-chave no título
+            if self.title_keywords and not self._titulo_aceito(title):
+                logger.debug("Descartando título (filtro title_keywords): %r", title)
+                continue
 
             if url in seen_urls:
                 continue
@@ -293,7 +297,7 @@ class DouScraper:
             pub = Publication(
                 title=title,
                 url=url,
-                section=(item.get("pubName") or section or "").upper() or None,
+                # se Publication tiver section/organ/etc com default, não precisamos passar tudo
             )
             publications.append(pub)
 
@@ -311,7 +315,7 @@ class DouScraper:
         """
         soup = BeautifulSoup(html, "lxml")
         publications: List[Publication] = []
-        seen: Set[str] = set()
+        seen_urls: Set[str] = set()
 
         for selector in RESULT_SELECTORS:
             for a in soup.select(selector):
@@ -323,19 +327,53 @@ class DouScraper:
                 if not is_materia_url(url):
                     continue
 
+                if not self._url_aceita(url):
+                    continue
+
                 title = (a.get_text(strip=True) or "").strip()
                 if not title:
                     continue
 
-                if url in seen:
+                if self.title_keywords and not self._titulo_aceito(title):
                     continue
 
-                seen.add(url)
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+
                 pub = Publication(
                     title=title,
                     url=url,
-                    section=section.upper() if section else None,
+                    # section pode ser preenchida aqui se fizer sentido:
+                    # section=section.upper() if section else None,
                 )
                 publications.append(pub)
 
         return publications
+
+    # ------------------------------------------------------------------
+    # Filtros auxiliares
+    # ------------------------------------------------------------------
+    def _url_aceita(self, url: str) -> bool:
+        """Aplica accept_url_patterns e reject_url_substrings, se configurados."""
+        if not url:
+            return False
+
+        # Rejeição prioritária
+        for bad in self.reject_url_substrings:
+            if bad and bad in url:
+                return False
+
+        # Se não houver padrões de aceitação, qualquer URL passa aqui
+        if not self.accept_url_patterns:
+            return True
+
+        return any(p.search(url) for p in self.accept_url_patterns)
+
+    def _titulo_aceito(self, title: str) -> bool:
+        """Aplica filtro opcional por palavras-chave no título (case-insensitive)."""
+        if not self.title_keywords:
+            return True
+
+        upper = (title or "").upper()
+        return any(k in upper for k in self.title_keywords)
