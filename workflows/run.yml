@@ -1,0 +1,158 @@
+# ------------------------------------------------------------------
+# run.yml - Workflow do GitHub Actions para rodar o robô do DOU
+#
+# Estratégia:
+# - Executar o robô 1x ao dia após a atualização do DOU.
+# - Padrão: período 'today' (edição do dia) definido no config.yml.
+# - Disparo manual (workflow_dispatch) com APENAS um override de período:
+#   today | week | month | any.
+# ------------------------------------------------------------------
+
+name: Run DOU Bot
+
+on:
+  # Execução automática agendada (horário em UTC)
+  schedule:
+    # 08:15 BRT (UTC-3) = 11:15 UTC
+    - cron: '15 11 * * *'
+
+  # Disparo manual via interface do GitHub Actions
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: 'Force test email (send even with no findings)'
+        default: 'false'
+      period:
+        description: 'Search period override: today | week | month | any'
+        default: ''
+
+jobs:
+  run-dou-bot:
+    runs-on: ubuntu-latest
+
+    # Permissões necessárias para comitar o seen.json de volta no repositório
+    permissions:
+      contents: write
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1) Checkout do código fonte do repositório
+      # ------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2) Configuração do Python 3.11 (padrão do robô)
+      # ------------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ------------------------------------------------------------------
+      # 3) Instalação das dependências do projeto
+      # ------------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ------------------------------------------------------------------
+      # 3.5) Instalação dos browsers do Playwright (Chromium)
+      #
+      # Sem este passo, o erro "Executable doesn't exist" aparece,
+      # porque só a biblioteca Python é instalada, mas não o navegador.
+      # ------------------------------------------------------------------
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install --with-deps chromium
+
+      # ------------------------------------------------------------------
+      # 4) Configuração das variáveis de ambiente para o robô
+      # ------------------------------------------------------------------
+      - name: Set environment variables
+        run: |
+          # SMTP config (obrigatório para enviar e-mail)
+          echo "SMTP_HOST=${{ secrets.SMTP_HOST }}" >> $GITHUB_ENV
+          echo "SMTP_PORT=${{ secrets.SMTP_PORT }}" >> $GITHUB_ENV
+          echo "SMTP_USER=${{ secrets.SMTP_USER }}" >> $GITHUB_ENV
+          echo "SMTP_PASS=${{ secrets.SMTP_PASS }}" >> $GITHUB_ENV
+
+          # Remetente padrão (opcional se já estiver no config.yml)
+          if [ -n "${{ secrets.MAIL_FROM }}" ]; then
+            echo "MAIL_FROM=${{ secrets.MAIL_FROM }}" >> $GITHUB_ENV
+          fi
+
+          # Destinatários padrão (opcional, normalmente definido no config.yml)
+          if [ -n "${{ secrets.MAIL_TO }}" ]; then
+            echo "MAIL_TO=${{ secrets.MAIL_TO }}" >> $GITHUB_ENV
+          fi
+
+          # Token da IA (Hugging Face Inference)
+          if [ -n "${{ secrets.HF_TOKEN }}" ]; then
+            echo "HF_TOKEN=${{ secrets.HF_TOKEN }}" >> $GITHUB_ENV
+          fi
+
+          # Overrides apenas quando disparado manualmente
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # FORCE_TEST_EMAIL: força envio de e-mail de teste mesmo sem resultados
+            if [ "${{ github.event.inputs.test_email }}" = "true" ]; then
+              echo "FORCE_TEST_EMAIL=true" >> $GITHUB_ENV
+            fi
+
+            # PERIOD_OVERRIDE a partir do input 'period', se informado
+            if [ -n "${{ github.event.inputs.period }}" ]; then
+              echo "PERIOD_OVERRIDE=${{ github.event.inputs.period }}" >> $GITHUB_ENV
+            fi
+          fi
+        shell: bash
+
+      # ------------------------------------------------------------------
+      # 4.5) (OPCIONAL) Verificar se o token da IA chegou corretamente
+      # ------------------------------------------------------------------
+      - name: Check HF token presence
+        run: |
+          python - << 'EOF'
+          import os
+          print("HF_TOKEN presente?", bool(os.getenv("HF_TOKEN")))
+          EOF
+
+      # ------------------------------------------------------------------
+      # 5) Execução do robô (script principal main.py em src/)
+      # ------------------------------------------------------------------
+      - name: Run DOU bot
+        run: |
+          python src/main.py
+
+      # ------------------------------------------------------------------
+      # 6) Upload de artefatos de debug (se existirem)
+      #
+      # O main.py salva HTMLs de listagem em artifacts/ quando
+      # a busca via URL direta não encontra resultados. Aqui
+      # fazemos upload desses arquivos para inspeção posterior.
+      # ------------------------------------------------------------------
+      - name: Upload debug artifacts (listing HTML), if any
+        uses: actions/upload-artifact@v4
+        with:
+          name: dou-listing-html
+          path: artifacts
+          if-no-files-found: ignore
+
+      # ------------------------------------------------------------------
+      # 7) Commit do arquivo de estado (state/seen.json)
+      #
+      # Se o main.py marcou novas publicações como "vistas",
+      # o seen.json será alterado. Se houver alterações, comita e dá push.
+      # ------------------------------------------------------------------
+      - name: Commit state (seen.json)
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add state/seen.json
+            git commit -m "chore: update seen.json [skip ci]" || true
+            git push
+          else
+            echo "No changes to commit."
+          fi
+        shell: bash
