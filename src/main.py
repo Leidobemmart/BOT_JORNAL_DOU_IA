@@ -57,12 +57,161 @@ CONFIG_FILE = ROOT / "config.yml"
 # IA – resumo automático via Hugging Face
 # ---------------------------------------------------------------------------
 
+def _prepare_summary_text(full_text: str, max_chars: int) -> str:
+    """
+    Limpa e limita o texto de entrada para a IA.
+    """
+    text = (full_text or "").strip()
+    if not text:
+        return ""
+    # Colapsa espaços e quebras de linha
+    text = re.sub(r"\s+", " ", text)
+    # Limita tamanho máximo
+    if max_chars and len(text) > max_chars:
+        text = text[:max_chars]
+    return text
+
+
+def _postprocess_summary(summary: str, max_chars: int) -> str:
+    """
+    Normaliza o resumo gerado pela IA e aplica limite de caracteres.
+    """
+    s = (summary or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"\s+", " ", s)
+
+    # Heurística simples para descartar saídas claramente erradas
+    bad_snippets = [
+        "este script",
+        "este código",
+        "como um modelo de linguagem",
+        "i am an ai",
+    ]
+    low = s.lower()
+    if any(bad in low for bad in bad_snippets):
+        return ""
+
+    if max_chars and len(s) > max_chars:
+        s = s[:max_chars]
+        if " " in s:
+            s = s.rsplit(" ", 1)[0] + "..."
+    return s
+
+
+def _summarize_with_gemini(text: str, ai_cfg: dict) -> str:
+    """
+    Tenta gerar resumo usando Gemini (Google Generative AI).
+    Requer GEMINI_API_KEY configurado.
+    """
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        logger.warning("[IA] google-generativeai não está instalado; pulando Gemini.")
+        return ""
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        logger.warning("[IA] GEMINI_API_KEY não definido; pulando Gemini.")
+        return ""
+
+    try:
+        genai.configure(api_key=api_key)
+    except Exception as exc:
+        logger.warning("[IA] Falha ao configurar Gemini: %s", exc)
+        return ""
+
+    model_id = (ai_cfg.get("model") or "gemini-1.5-flash").strip()
+    g_cfg = (ai_cfg.get("gemini") or {}) if isinstance(ai_cfg.get("gemini"), dict) else {}
+    temperature = g_cfg.get("temperature", 0.2)
+    max_output_tokens = g_cfg.get("max_tokens", 300)
+
+    prompt = (
+        "Você é um analista jurídico-tributário especializado em normas publicadas "
+        "no Diário Oficial da União.\n\n"
+        "Leia o texto abaixo (apenas o corpo de um ato oficial) e produza um resumo "
+        "em português do Brasil, com no máximo 350 caracteres, em um único parágrafo.\n\n"
+        "O resumo deve:\n"
+        "- indicar, se possível, o tipo do ato (lei, decreto, portaria, instrução normativa etc.);\n"
+        "- destacar o tema central e o impacto prático para empresas, com foco em aspectos fiscais, tributários, regulatórios ou de incentivos;\n"
+        "- mencionar tributos, benefícios ou obrigações relevantes, quando existirem;\n"
+        "- evitar repetir literalmente o título do ato;\n"
+        "- ser objetivo, técnico e sem adjetivos desnecessários.\n\n"
+        "Texto do ato (corpo):\n"
+        + text
+    )
+
+    try:
+        model = genai.GenerativeModel(model_id)
+        resp = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": float(temperature),
+                "max_output_tokens": int(max_output_tokens),
+            },
+        )
+        summary = getattr(resp, "text", "") or ""
+        return summary
+    except Exception as exc:
+        logger.warning("[IA] Erro ao chamar Gemini: %s", exc)
+        return ""
+
+
+def _summarize_with_hf(text: str, ai_cfg: dict) -> str:
+    """
+    Tenta gerar resumo usando Hugging Face Inference.
+    Requer HF_TOKEN configurado.
+    """
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        logger.warning("[IA] HF_TOKEN não definido; pulando Hugging Face.")
+        return ""
+
+    model_id = (ai_cfg.get("hf_model") or ai_cfg.get("model") or "").strip()
+    if not model_id:
+        # Fallback para algum modelo default, se necessário
+        model_id = "google/mt5-base"
+
+    try:
+        client = InferenceClient(model=model_id, token=token)
+    except Exception as exc:
+        logger.warning("[IA] Erro ao inicializar InferenceClient: %s", exc)
+        return ""
+
+    # Parâmetros opcionais (nem todo endpoint respeita, mas não atrapalha)
+    hf_cfg = (ai_cfg.get("huggingface") or {}) if isinstance(ai_cfg.get("huggingface"), dict) else {}
+    max_new_tokens = int(hf_cfg.get("max_new_tokens", 200))
+    try:
+        logger.info("[IA] Chamando summarization() para o modelo HF: %s", model_id)
+        result = client.summarization(
+            text,
+            max_new_tokens=max_new_tokens,
+        )
+    except Exception as exc:
+        logger.warning("[IA] Erro ao chamar Hugging Face Inference: %s", exc)
+        return ""
+
+    # Possíveis formatos de retorno
+    summary = ""
+    if isinstance(result, dict) and "summary_text" in result:
+        summary = result["summary_text"]
+    elif isinstance(result, list) and result and isinstance(result[0], dict) and "summary_text" in result[0]:
+        summary = result[0]["summary_text"]
+    elif isinstance(result, str):
+        summary = result
+    else:
+        logger.warning("[IA] Resultado de summarization em formato inesperado: %r", result)
+
+    return summary
+
+
 def generate_summary_ia(full_text: str, cfg: dict) -> str:
     """
-    Gera um resumo curto usando Hugging Face Inference (tarefa de summarization).
+    Gera um resumo curto usando Gemini como provedor principal
+    e Hugging Face como fallback.
 
     - Usa as configs em cfg['ai']['summaries'].
-    - Requer HF_TOKEN nas variáveis de ambiente.
+    - Requer GEMINI_API_KEY e/ou HF_TOKEN.
     - Em erro, retorna string vazia para não quebrar o robô.
     """
     ai_cfg = (cfg.get("ai") or {}).get("summaries") or {}
@@ -70,63 +219,32 @@ def generate_summary_ia(full_text: str, cfg: dict) -> str:
         logger.info("[IA] Summaries desabilitados no config.")
         return ""
 
-    token = os.getenv("HF_TOKEN")
-    if not token:
-        logger.warning("[IA] HF_TOKEN não definido; pulando resumo.")
-        return ""
+    # Limites de entrada/saída
+    max_chars_input = int(ai_cfg.get("max_chars_input", 4000))
+    max_chars_output = int(ai_cfg.get("max_chars_output", 350))
 
-    model_id = ai_cfg.get("model") or "recogna-nlp/ptt5-base-summ-xlsum"
-    max_chars = int(ai_cfg.get("max_chars_input", 5000))
-
-    text = (full_text or "").strip()
-    text = re.sub(r"\s+", " ", text)
+    text = _prepare_summary_text(full_text, max_chars_input)
     if not text:
         return ""
 
-    if len(text) > max_chars:
-        text = text[:max_chars]
+    provider = (ai_cfg.get("provider") or "gemini").strip().lower()
 
-    try:
-        client = InferenceClient(model=model_id, token=token)
-        logger.info("[IA] Chamando summarization() para o modelo: %s", model_id)
+    summary = ""
 
-        # Este é o método que vimos funcionar no workflow de teste
-        result = client.summarization(text)
+    # Provider "gemini" ou "fallback" → tenta Gemini primeiro
+    if provider in ("gemini", "fallback"):
+        summary = _summarize_with_gemini(text, ai_cfg)
+        if summary:
+            return _postprocess_summary(summary, max_chars_output)
 
-        # No teste, o retorno foi algo como: SummarizationOutput(summary_text='...')
-        summary = ""
+    # Provider "hf" ou "fallback" ou caso Gemini falhe → tenta HF
+    if provider in ("hf", "fallback", "gemini"):
+        summary = _summarize_with_hf(text, ai_cfg)
+        if summary:
+            return _postprocess_summary(summary, max_chars_output)
 
-        if hasattr(result, "summary_text"):
-            summary = result.summary_text
-        elif isinstance(result, dict) and "summary_text" in result:
-            summary = result["summary_text"]
-        elif isinstance(result, list) and result and isinstance(result[0], dict):
-            summary = result[0].get("summary_text", "")
-        elif isinstance(result, str):
-            summary = result
-        else:
-            summary = str(result)
-
-        summary = (summary or "").strip()
-        summary = re.sub(r"\s+", " ", summary)
-
-        if not summary:
-            logger.warning("[IA] Resultado sem summary utilizável: %r", result)
-            return ""
-
-        # Encurtar para não virar um tijolo no e-mail
-        if len(summary) > 280:
-            summary = summary[:277]
-            if " " in summary:
-                summary = summary.rsplit(" ", 1)[0] + "..."
-
-        logger.info("[IA] Resumo gerado com %d caracteres.", len(summary))
-        return summary
-
-    except Exception as e:
-        logger.exception("[IA] Erro ao chamar Hugging Face Inference: %s", e)
-        return ""
-
+    logger.info("[IA] Não foi possível gerar resumo com os provedores configurados.")
+    return ""
 
 # ---------------------------------------------------------------------------
 # Utilitários de configuração e estado
