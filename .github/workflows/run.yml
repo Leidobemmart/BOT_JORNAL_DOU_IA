@@ -93,6 +93,11 @@ jobs:
             echo "HF_TOKEN=${{ secrets.HF_TOKEN }}" >> $GITHUB_ENV
           fi
 
+          # Token da IA (Gemini / Google Generative AI)
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> $GITHUB_ENV
+          fi
+
           # Overrides apenas quando disparado manualmente
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # FORCE_TEST_EMAIL: força envio de e-mail de teste mesmo sem resultados
