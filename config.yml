@@ -168,30 +168,31 @@ ai:
   summaries:
     # Ativar/desativar resumos
     enabled: true
-    
-    # Provedor: "gemini" | "hf" | "fallback"
+
+    # Provedor principal: "gemini", "hf" ou "fallback"
+    # - "gemini": tenta Gemini e, se falhar, cai para HF
+    # - "hf": usa apenas Hugging Face
+    # - "fallback": tenta Gemini e depois HF
     provider: "gemini"
-    
-    # Modelo específico por provedor
-    model: "gemini-1.5-flash"  # Para Gemini
-    # model: "recogna-nlp/ptt5-base-summ-xlsum"  # Para Hugging Face
-    
-    # Limites
-    max_chars_input: 4000
-    timeout_sec: 30
-    max_retries: 3
-    
+
+    # Modelo padrão (usado como base para o provider atual)
+    model: "gemini-1.5-flash"
+
+    # Limites de entrada/saída
+    max_chars_input: 4000     # quanto do texto cru vai para a IA
+    max_chars_output: 350     # limite em caracteres do resumo final
+
     # Configurações específicas do Gemini
     gemini:
       temperature: 0.2
-      max_tokens: 300
-      
+      max_tokens: 300   # tokens de saída
+
     # Configurações específicas do Hugging Face
     huggingface:
-      temperature: 0.3
       max_new_tokens: 200
-      
-    # Configurações do fallback (sem IA)
+
+    # (Opcional) você pode manter esse bloco se já existir:
     fallback:
       min_summary_length: 50
       max_summary_length: 250
+
