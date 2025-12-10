@@ -70,7 +70,7 @@ search:
   # - week  : última semana
   # - month : último mês
   # - any   : qualquer período
-  period: any
+  period: today
 
   # Janela de dias (apenas informativo no email)
   days_window: 1
@@ -167,7 +167,7 @@ email:
 ai:
   summaries:
     # Ativar/desativar resumos
-    enabled: false
+    enabled: true
     
     # Provedor: "gemini" | "hf" | "fallback"
     provider: "gemini"
