@@ -568,6 +568,10 @@ def send_email(items: list[dict], cfg: dict) -> None:
                 headline = titulo
 
             text_lines.append(headline)
+            
+            # Subtítulo: título oficial completo, se diferente do headline
+            if titulo and titulo != headline:
+                text_lines.append(titulo)
 
             if resumo_ia:
                 text_lines.append(f"Resumo: {resumo_ia}")
@@ -591,6 +595,12 @@ def send_email(items: list[dict], cfg: dict) -> None:
 
     text_lines.append("—")
     text_lines.append(f"Critérios de busca: {crit_line}")
+
+    org_filters = (cfg.get("filters") or {}).get("orgao_keywords") or []
+    org_filters = [o for o in org_filters if o]
+    if org_filters:
+        text_lines.append("Filtros por órgão: " + "; ".join(org_filters))
+    
     if ai_enabled:
         text_lines.append(
             "Resumos gerados automaticamente por IA. Sempre confira o texto oficial no DOU."
@@ -639,6 +649,14 @@ def send_email(items: list[dict], cfg: dict) -> None:
             html_lines.append("<p style='margin-bottom:10px;'>")
             html_lines.append(f"<b>{_escape_html(headline)}</b><br/>")
 
+            # Subtítulo: título oficial completo, se diferente do headline
+            if titulo and titulo != headline:
+                html_lines.append(
+                    "<span style='font-size:13px;color:#000;'>"
+                    f"{_escape_html(titulo)}"
+                    "</span><br/>"
+                )
+
             if resumo_ia:
                 html_lines.append(
                     "<span style='font-size:13px;color:#000;'>"
@@ -674,6 +692,17 @@ def send_email(items: list[dict], cfg: dict) -> None:
         f"{_escape_html(crit_line)}"
         "</p>"
     )
+
+        org_filters = (cfg.get("filters") or {}).get("orgao_keywords") or []
+    org_filters = [o for o in org_filters if o]
+    if org_filters:
+        html_lines.append(
+            "<p style='font-size:12px;color:#777;'>"
+            "Filtros por órgão: "
+            f"{_escape_html('; '.join(org_filters))}"
+            "</p>"
+        )
+        
     if ai_enabled:
         html_lines.append(
             "<p style='font-size:11px;color:#999;'>"
@@ -1374,7 +1403,7 @@ async def run() -> None:
 
     relevant.sort(key=_sort_key, reverse=True)
 
-    # ---- IA: gerar resumos das matérias, se habilitado ----
+        # ---- IA: gerar resumos das matérias, se habilitado ----
     ai_cfg = (cfg.get("ai") or {}).get("summaries") or {}
     if ai_cfg.get("enabled"):
         for r in relevant:
@@ -1383,11 +1412,21 @@ async def run() -> None:
             raw = (r.get("texto_bruto") or "").strip()
             if not raw:
                 continue
-            logger.info("[IA] Gerando resumo para: %r", (r.get("titulo") or "")[:80])
+
+            titulo_dbg = (r.get("titulo") or "")[:80]
+            logger.info("[IA] Gerando resumo para: %r", titulo_dbg)
+            # DEBUG: inspecionar o que está indo para a IA
+            logger.info(
+                "[IA-DEBUG] Texto_bruto (%s) [len=%d]: %.300r",
+                titulo_dbg,
+                len(raw),
+                raw[:300],
+            )
+
             resumo = generate_summary_ia(raw, cfg)
             if resumo:
                 r["resumo_ia"] = resumo
-                logger.info("[IA] Resumo aplicado em: %r", (r.get("titulo") or "")[:80])
+                logger.info("[IA] Resumo aplicado em: %r", titulo_dbg)
             # Pequena pausa para ser gentil com a API
             time.sleep(1)
 
