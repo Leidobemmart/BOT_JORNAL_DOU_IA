@@ -176,7 +176,7 @@ ai:
     provider: "fallback"          # já deixo pronto para Gemini + HF
     
     # Modelo principal (Gemini)
-    model: "gemini-2.5-flash"
+    #model: "gemini-2.5-flash"
     
     # Modelo específico para Hugging Face (fallback)
     hf_model: "recogna-nlp/ptt5-base-summ-xlsum"
