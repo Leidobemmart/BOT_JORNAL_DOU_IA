@@ -325,6 +325,9 @@ def save_seen(seen: set) -> None:
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(sorted(seen), f, ensure_ascii=False, indent=2)
 
+# ---------------------------------------------------------------------------
+# Função shorten_orgao(...) para encurtar o nome do órgão
+# ---------------------------------------------------------------------------
 
 def normalize(txt: str) -> str:
     """
@@ -337,6 +340,48 @@ def normalize(txt: str) -> str:
     t = re.sub(r"\s+", " ", t)
     return t.strip()
 
+def shorten_orgao(orgao: str) -> str:
+    """
+    Encurta nomes longos de órgãos para uma forma mais compacta no e-mail.
+    Se não bater nenhum padrão, devolve o texto original.
+    """
+    if not orgao:
+        return ""
+
+    o = orgao.strip()
+
+    # Mapeamentos específicos que você já viu na prática
+    replacements = [
+        (
+            "Ministério da Fazenda/Secretaria Especial da Receita Federal do Brasil/Secretaria-Adjunta/Superintendência Regional da Receita Federal do Brasil 8ª Região Fiscal/Delegacia da Receita Federal do Brasil em Sorocaba",
+            "Min. Fazenda / RFB / DRF Sorocaba",
+        ),
+        (
+            "Ministério da Fazenda/Secretaria Especial da Receita Federal do Brasil/Secretaria-Adjunta",
+            "Min. Fazenda / RFB / Secretaria-Adjunta",
+        ),
+        (
+            "Ministério da Fazenda/Secretaria Especial da Receita Federal do Brasil",
+            "Min. Fazenda / RFB",
+        ),
+        (
+            "Ministério da Fazenda/Conselho Nacional de Política Fazendária",
+            "Min. Fazenda / Confaz",
+        ),
+        (
+            "Ministério da Ciência, Tecnologia e Inovação/Conselho Nacional de Desenvolvimento Científico e Tecnológico",
+            "MCTI / CNPq",
+        ),
+    ]
+
+    for long_txt, short_txt in replacements:
+        if long_txt in o:
+            return short_txt
+
+    # Fallback: se ficar muito grande, corta com reticências
+    if len(o) > 120:
+        return o[:117] + "..."
+    return o
 
 # ---------------------------------------------------------------------------
 # Heurísticas de texto/link
