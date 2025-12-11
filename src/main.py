@@ -74,29 +74,78 @@ def _prepare_summary_text(full_text: str, max_chars: int) -> str:
 
 def _postprocess_summary(summary: str, max_chars: int) -> str:
     """
-    Normaliza o resumo gerado pela IA e aplica limite de caracteres.
+    Limpa, normaliza e limita o resumo gerado pela IA.
+
+    Objetivos:
+    - remover aberturas do tipo "O Diário Oficial da União publicou..."
+      ou "A Agência ... publicou...";
+    - descartar saídas claramente inúteis/hallucinatórias;
+    - evitar resumos muito curtos;
+    - respeitar o limite de caracteres e terminar bem.
     """
     s = (summary or "").strip()
     if not s:
         return ""
-    s = re.sub(r"\s+", " ", s)
 
-    # Heurística simples para descartar saídas claramente erradas
+    # Colapsa espaços e quebras de linha
+    s = re.sub(r"\s+", " ", s).strip()
+    low = s.lower()
+
+    # Frases claramente erradas / metalinguagem de IA
     bad_snippets = [
         "este script",
         "este código",
         "como um modelo de linguagem",
         "i am an ai",
         "sou um modelo de linguagem",
+        "sou apenas um modelo",
     ]
-    low = s.lower()
     if any(bad in low for bad in bad_snippets):
         return ""
 
+    # Remove aberturas "noticiosas" comuns ("O DOU publicou...", etc.)
+    strip_patterns = [
+        r"(?i)^o diário oficial da união (publicou|publica)[^,\.]*[,\.]\s*",
+        r"(?i)^o diario oficial da uniao (publicou|publica)[^,\.]*[,\.]\s*",
+        r"(?i)^o diário oficial (publicou|publica)[^,\.]*[,\.]\s*",
+        r"(?i)^o diario oficial (publicou|publica)[^,\.]*[,\.]\s*",
+        r"(?i)^a agência nacional[^,\.]* (publicou|publica)[^,\.]*[,\.]\s*",
+        r"(?i)^a agencia nacional[^,\.]* (publicou|publica)[^,\.]*[,\.]\s*",
+        r"(?i)^o ato declaratório executivo (do )?(ministério da fazenda|ministerio da fazenda|mdf|mfd)[^,\.]*[,\.]\s*",
+    ]
+    for pat in strip_patterns:
+        s = re.sub(pat, "", s).strip()
+
+    low = s.lower()
+
+    # Se ainda sobrou muito "notícia de jornal" pura, podemos descartar
+    newsy_snippets = [
+        "nesta sexta-feira",
+        "nesta quinta-feira",
+        "na última sexta-feira",
+        "na ultima sexta-feira",
+        "na data de hoje",
+        "hoje",
+    ]
+    if any(ns in low for ns in newsy_snippets) and "ato declaratório" not in low and "solução de consulta" not in low:
+        # se for só contextualização de data, sem o conteúdo, descarta
+        return ""
+
+    # Não aceitar resumos muito curtos
+    if len(s) < 60:
+        return ""
+
+    # Aplica limite de caracteres
     if max_chars and len(s) > max_chars:
         s = s[:max_chars]
+        # corta na última palavra inteira
         if " " in s:
             s = s.rsplit(" ", 1)[0] + "..."
+
+    # Garante que termine com pontuação razoável
+    if not s.endswith((".", "!", "?", ";")):
+        s += "."
+
     return s
 
 
