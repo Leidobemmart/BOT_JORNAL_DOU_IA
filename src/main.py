@@ -1417,7 +1417,7 @@ async def run() -> None:
             logger.info("[IA] Gerando resumo para: %r", titulo_dbg)
             # DEBUG: inspecionar o que está indo para a IA
             logger.info(
-                "[IA-DEBUG] Texto_bruto (%s) [len=%d]: %.300r",
+                "[IA-DEBUG] Texto_bruto (%s) [len=%d]: %.500r",
                 titulo_dbg,
                 len(raw),
                 raw[:300],
