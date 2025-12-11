@@ -416,17 +416,19 @@ def send_email(items: list[dict], cfg: dict) -> None:
     """
     Monta e envia o e-mail de informe com os atos encontrados.
 
-    Layout (texto):
+    Layout texto (plain):
 
-    Bom dia! Seguem as principais publicações fiscais/tributárias do DOU de 03/12/2025.
+    Bom dia! Seguem as principais publicações fiscais/tributárias do DOU de 11/12/2025.
+    Janela considerada: 10/12/2025 a 11/12/2025 | Período lógico: today
 
-    Janela considerada: 02/12/2025 a 03/12/2025 | Período lógico: today
-
-    SOLUÇÃO DE CONSULTA 98.366
-    Resumo: [texto da IA, se for aproveitável]
-    Órgão: Min. Fazenda / RFB / STC · DOU: 03/12/2025 · ver no DOU: https://...
+    ATO DECLARATÓRIO 256
+    ATO DECLARATÓRIO EXECUTIVO DECEX/RJO Nº 256, de 10 de dezembro de 2025
+    Resumo: [se disponível]
+    Órgão: Min. Fazenda / RFB / Secretaria-Adjunta · DOU: 11/12/2025 · ver no DOU
 
     ...
+
+    E-mail HTML segue estrutura similar, com negrito e quebras de linha.
     """
 
     def _extract_emails(element):
@@ -464,59 +466,18 @@ def send_email(items: list[dict], cfg: dict) -> None:
 
         return r
 
-    def shorten_orgao(orgao: str) -> str:
-        """
-        Encurta a cadeia do órgão para não ficar uma frase enorme no e-mail.
-        Ex.: Ministério da Fazenda/Secretaria Especial da Receita Federal do Brasil/...
-             -> Min. Fazenda / RFB / STC
-        """
-        if not orgao:
-            return ""
-        parts = [p.strip() for p in orgao.split("/") if p.strip()]
-        if not parts:
-            return ""
-
-        repl = {
-            "Ministério da Fazenda": "Min. Fazenda",
-            "Secretaria Especial da Receita Federal do Brasil": "RFB",
-            "Subsecretaria de Tributação e Contencioso": "STC",
-            "Superintendência Regional da Receita Federal do Brasil 8ª Região Fiscal": "SRRF08",
-            "Delegacia da Receita Federal do Brasil em Sorocaba": "DRF Sorocaba",
-            "Ministério da Ciência, Tecnologia e Inovação": "MCTI",
-            "Conselho Nacional de Desenvolvimento Científico e Tecnológico": "CNPq",
-            "Conselho Nacional de Política Fazendária": "Confaz",
-        }
-
-        for i, p in enumerate(parts):
-            if p in repl:
-                parts[i] = repl[p]
-
-        # Mantém só os 2–3 primeiros níveis
-        parts = parts[:3]
-        s = " / ".join(parts)
-
-        # Corta se ainda ficar muito longo
-        if len(s) > 120:
-            s = s[:117] + "..."
-        return s
-
     # ----------------- Destinatários -----------------
-    to_list  = _extract_emails(cfg["email"].get("to"))  or _extract_emails(os.getenv("MAIL_TO"))
-    cc_list  = _extract_emails(cfg["email"].get("cc"))  or _extract_emails(os.getenv("MAIL_CC"))
+    to_list = _extract_emails(cfg["email"].get("to")) or _extract_emails(os.getenv("MAIL_TO"))
+    cc_list = _extract_emails(cfg["email"].get("cc")) or _extract_emails(os.getenv("MAIL_CC"))
     bcc_list = _extract_emails(cfg["email"].get("bcc")) or _extract_emails(os.getenv("MAIL_BCC"))
 
     from_addr = cfg["email"].get("from_") or os.getenv("MAIL_FROM")
 
-    # Cabeçalhos
-    msg["To"] = ", ".join(to_list)
-    if cc_list:
-        msg["Cc"] = ", ".join(cc_list)
+    if not to_list or not from_addr:
+        print("WARN: destinatarios (TO) ou remetente nao configurados; pulando envio.")
+        return
 
-    # Lista REAL de envio (importante!)
-    all_recipients = to_list + cc_list + bcc_list
-
-
-    # Config SMTP
+    # Config SMTP (sempre pega das env vars)
     host = os.getenv("SMTP_HOST")
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USER")
@@ -545,6 +506,9 @@ def send_email(items: list[dict], cfg: dict) -> None:
     phrases = cfg.get("search", {}).get("phrases", [])
     crit_line = "; ".join(phrases) if phrases else "(frases não especificadas)"
 
+    org_filters = (cfg.get("filters") or {}).get("orgao_keywords") or []
+    org_filters = [o for o in org_filters if o]
+
     ai_enabled = bool((cfg.get("ai") or {}).get("summaries", {}).get("enabled"))
 
     # ----------------- TEXTO SIMPLES -----------------
@@ -558,7 +522,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
     text_lines.append("")
 
     if not items:
-        text_lines.append("Nenhuma publicação relevante encontrada para os critérios atuais.")
+        text_lines.append("Não foram encontradas publicações relevantes para os critérios atuais.")
     else:
         for it in items:
             titulo = (it.get("titulo") or "").strip()
@@ -569,14 +533,14 @@ def send_email(items: list[dict], cfg: dict) -> None:
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
 
-            # Manchete mais enxuta: tipo + número; se não tiver, cai para o título
+            # Manchete: tipo + número; se não tiver, cai para o título
             if tipo or num:
                 headline = f"{tipo} {num}".strip()
             else:
                 headline = titulo
 
             text_lines.append(headline)
-            
+
             # Subtítulo: título oficial completo, se diferente do headline
             if titulo and titulo != headline:
                 text_lines.append(titulo)
@@ -585,16 +549,12 @@ def send_email(items: list[dict], cfg: dict) -> None:
                 text_lines.append(f"Resumo: {resumo_ia}")
 
             footer_parts = []
-            org_short = shorten_orgao(org) if org else ""
-            if org_short:
-                footer_parts.append(f"Órgão: {org_short}")
-            elif org:
+            if org:
                 footer_parts.append(f"Órgão: {org}")
-
             if data_pub:
                 footer_parts.append(f"DOU: {data_pub}")
             if url:
-                footer_parts.append(f"ver no DOU: {url}")
+                footer_parts.append(f"ver no DOU ({url})")
 
             if footer_parts:
                 text_lines.append(" · ".join(footer_parts))
@@ -603,12 +563,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
 
     text_lines.append("—")
     text_lines.append(f"Critérios de busca: {crit_line}")
-
-    org_filters = (cfg.get("filters") or {}).get("orgao_keywords") or []
-    org_filters = [o for o in org_filters if o]
     if org_filters:
         text_lines.append("Filtros por órgão: " + "; ".join(org_filters))
-    
     if ai_enabled:
         text_lines.append(
             "Resumos gerados automaticamente por IA. Sempre confira o texto oficial no DOU."
@@ -647,6 +603,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
 
+            # Manchete: tipo + número; se não tiver, cai para o título
             if tipo or num:
                 headline = f"{tipo} {num}".strip()
             else:
@@ -675,8 +632,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
             footer_parts = []
             if org_short:
                 footer_parts.append(f"Órgão: {_escape_html(org_short)}")
-            elif org:
-                footer_parts.append(f"Órgão: {_escape_html(org)}")
             if data_pub:
                 footer_parts.append(f"DOU: {_escape_html(data_pub)}")
             if url:
@@ -694,16 +649,13 @@ def send_email(items: list[dict], cfg: dict) -> None:
 
             html_lines.append("</p>")
 
+    # Rodapé com critérios de busca e filtros por órgão
     html_lines.append(
         "<p style='font-size:12px;color:#777;'>"
         "Critérios de busca: "
         f"{_escape_html(crit_line)}"
         "</p>"
     )
-    
-    # Filtros por órgão — linha opcional
-    org_filters = (cfg.get("filters") or {}).get("orgao_keywords") or []
-    org_filters = [o for o in org_filters if o]
     if org_filters:
         html_lines.append(
             "<p style='font-size:12px;color:#777;'>"
@@ -711,7 +663,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
             f"{_escape_html('; '.join(org_filters))}"
             "</p>"
         )
-        
     if ai_enabled:
         html_lines.append(
             "<p style='font-size:11px;color:#999;'>"
@@ -728,17 +679,22 @@ def send_email(items: list[dict], cfg: dict) -> None:
     msg["Subject"] = subject
     msg["From"] = from_addr
     msg["To"] = ", ".join(to_list)
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
 
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    all_recipients = to_list + cc_list + bcc_list
 
     context = ssl.create_default_context()
     with smtplib.SMTP(host, port) as server:
         server.starttls(context=context)
         server.login(user, pwd)
-        server.sendmail(from_addr, to_list, msg.as_string())
+        server.sendmail(from_addr, all_recipients, msg.as_string())
 
-    print(f"Email enviado para {', '.join(to_list)} com {len(items)} item(ns).")
+    print(f"Email enviado para {', '.join(all_recipients)} com {len(items)} item(ns).")
+
 
 # ---------------------------------------------------------------------------
 # Scraping helpers – busca no DOU
