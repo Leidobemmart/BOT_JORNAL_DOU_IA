@@ -929,6 +929,55 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
 
     return all_items
 
+def extract_clean_text(soup: BeautifulSoup) -> str:
+    """
+    Extrai texto útil da matéria do DOU, removendo menus, navegação e lixo
+    típico do portal, para uso na IA (texto_bruto).
+    """
+    # Tenta identificar o container principal da matéria
+    main = (
+        soup.select_one("div#materia") or
+        soup.select_one("article") or
+        soup.select_one("div.materia") or
+        soup.select_one("div.coluna-2") or
+        soup.body
+    )
+
+    raw = main.get_text("\n", strip=True)
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+    # Trechos típicos de navegação/lixo que queremos remover
+    noise = [
+        "Página Inicial",
+        "Página inicial",
+        "Atividades da Página inicial",
+        "Atividades da página inicial",
+        "Clique aqui para",
+        "Acesse o site",
+        "Voltar para a página inicial",
+        "Reportar erro",
+        "Menu",
+        "Buscar:",
+        "Conteúdo da Página",
+        "Conteudo da Pagina",
+        "Assinatura eletrônica",
+        "Assinatura eletronica",
+    ]
+
+    clean = []
+    for ln in lines:
+        low = ln.lower()
+        if any(n.lower() in low for n in noise):
+            continue
+        clean.append(ln)
+
+    texto = "\n".join(clean).strip()
+
+    # Se ficar pouco texto, não arrisca perder conteúdo: usa o bruto
+    if len(texto) < 300:
+        return raw.strip()
+
+    return texto
 
 async def enrich_listing_item(page, item: dict) -> dict:
     """
@@ -968,8 +1017,9 @@ async def enrich_listing_item(page, item: dict) -> dict:
         if m:
             orgao = m.group(1).strip()
 
-    # texto bruto principal (para heurísticas + IA)
-    head_txt = soup.get_text(" ", strip=True)[:4000]
+    # texto bruto principal para heurísticas (tudo em uma linha)
+    raw_all = soup.get_text("\n", strip=True)
+    head_txt = raw_all.replace("\n", " ")[:4000]
 
     # tipo/número (heurística)
     m_tipo = re.search(
@@ -996,6 +1046,11 @@ async def enrich_listing_item(page, item: dict) -> dict:
     if not data_pub:
         data_pub = datetime.now().strftime("%d/%m/%Y")
 
+    # texto limpo para IA (corpo da matéria, sem menus)
+    clean_text = extract_clean_text(soup)
+    # limita para não explodir a IA
+    clean_text = clean_text[:4000]
+
     return {
         "url": final_url,
         "titulo": titulo or "(sem título)",
@@ -1003,7 +1058,7 @@ async def enrich_listing_item(page, item: dict) -> dict:
         "tipo": tipo,
         "numero": numero,
         "data": data_pub,
-        "texto_bruto": head_txt,
+        "texto_bruto": clean_text,
     }
 
 
