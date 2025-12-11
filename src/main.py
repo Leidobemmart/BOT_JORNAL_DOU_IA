@@ -501,12 +501,20 @@ def send_email(items: list[dict], cfg: dict) -> None:
         return s
 
     # ----------------- Destinatários -----------------
-    to_list = _extract_emails(cfg["email"].get("to")) or _extract_emails(os.getenv("MAIL_TO"))
+    to_list  = _extract_emails(cfg["email"].get("to"))  or _extract_emails(os.getenv("MAIL_TO"))
+    cc_list  = _extract_emails(cfg["email"].get("cc"))  or _extract_emails(os.getenv("MAIL_CC"))
+    bcc_list = _extract_emails(cfg["email"].get("bcc")) or _extract_emails(os.getenv("MAIL_BCC"))
+
     from_addr = cfg["email"].get("from_") or os.getenv("MAIL_FROM")
 
-    if not to_list or not from_addr:
-        print("WARN: destinatarios ou remetente nao configurados; pulando envio.")
-        return
+    # Cabeçalhos
+    msg["To"] = ", ".join(to_list)
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+
+    # Lista REAL de envio (importante!)
+    all_recipients = to_list + cc_list + bcc_list
+
 
     # Config SMTP
     host = os.getenv("SMTP_HOST")
