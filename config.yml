@@ -179,7 +179,7 @@ ai:
     #model: "gemini-2.5-flash"
     
     # Modelo específico para Hugging Face (fallback)
-    hf_model: "recogna-nlp/ptt5-base-summ-xlsum"
+    hf_model: "recogna-nlp/ptt5-base-summ-temario" #"recogna-nlp/ptt5-base-summ-xlsum" 
     
     # Limites
     max_chars_input: 4000      # quanto do texto cru vai para a IA
