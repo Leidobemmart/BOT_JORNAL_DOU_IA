@@ -173,10 +173,10 @@ ai:
     # - "gemini": tenta só Gemini
     # - "hf": tenta só Hugging Face
     # - "fallback": tenta Gemini e depois HF
-    provider: "gemini"
+    provider: "fallback"          # já deixo pronto para Gemini + HF
     
     # Modelo principal (Gemini)
-    model: "gemini-2.0-flash-live"
+    model: "gemini-2.5-flash"
     
     # Modelo específico para Hugging Face (fallback)
     hf_model: "recogna-nlp/ptt5-base-summ-xlsum"
