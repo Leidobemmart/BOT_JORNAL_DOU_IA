@@ -97,6 +97,20 @@ jobs:
           if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
             echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> $GITHUB_ENV
           fi
+      
+      - name: Check HF token presence
+        run: |
+          python - << 'EOF'
+          import os
+          print("HF_TOKEN presente?", bool(os.getenv("HF_TOKEN")))
+          EOF
+
+      - name: Check Gemini token presence
+        run: |
+          python - << 'EOF'
+          import os
+          print("GEMINI_API_KEY presente?", bool(os.getenv("GEMINI_API_KEY")))
+          EOF
 
           # Overrides apenas quando disparado manualmente
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
