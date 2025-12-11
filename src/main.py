@@ -87,6 +87,7 @@ def _postprocess_summary(summary: str, max_chars: int) -> str:
         "este código",
         "como um modelo de linguagem",
         "i am an ai",
+        "sou um modelo de linguagem",
     ]
     low = s.lower()
     if any(bad in low for bad in bad_snippets):
@@ -123,8 +124,8 @@ def _summarize_with_gemini(text: str, ai_cfg: dict) -> str:
 
     model_id = (ai_cfg.get("model") or "gemini-1.5-flash").strip()
     g_cfg = (ai_cfg.get("gemini") or {}) if isinstance(ai_cfg.get("gemini"), dict) else {}
-    temperature = g_cfg.get("temperature", 0.2)
-    max_output_tokens = g_cfg.get("max_tokens", 300)
+    temperature = float(g_cfg.get("temperature", 0.2))
+    max_output_tokens = int(g_cfg.get("max_tokens", 300))
 
     prompt = (
         "Você é um analista jurídico-tributário especializado em normas publicadas "
@@ -133,7 +134,8 @@ def _summarize_with_gemini(text: str, ai_cfg: dict) -> str:
         "em português do Brasil, com no máximo 350 caracteres, em um único parágrafo.\n\n"
         "O resumo deve:\n"
         "- indicar, se possível, o tipo do ato (lei, decreto, portaria, instrução normativa etc.);\n"
-        "- destacar o tema central e o impacto prático para empresas, com foco em aspectos fiscais, tributários, regulatórios ou de incentivos;\n"
+        "- destacar o tema central e o impacto prático para empresas, com foco em aspectos fiscais, "
+        "tributários, regulatórios ou de incentivos;\n"
         "- mencionar tributos, benefícios ou obrigações relevantes, quando existirem;\n"
         "- evitar repetir literalmente o título do ato;\n"
         "- ser objetivo, técnico e sem adjetivos desnecessários.\n\n"
@@ -146,8 +148,8 @@ def _summarize_with_gemini(text: str, ai_cfg: dict) -> str:
         resp = model.generate_content(
             prompt,
             generation_config={
-                "temperature": float(temperature),
-                "max_output_tokens": int(max_output_tokens),
+                "temperature": temperature,
+                "max_output_tokens": max_output_tokens,
             },
         )
         summary = getattr(resp, "text", "") or ""
@@ -167,10 +169,10 @@ def _summarize_with_hf(text: str, ai_cfg: dict) -> str:
         logger.warning("[IA] HF_TOKEN não definido; pulando Hugging Face.")
         return ""
 
+    # Pega modelo específico de HF se existir; se não, cai no "model"
     model_id = (ai_cfg.get("hf_model") or ai_cfg.get("model") or "").strip()
     if not model_id:
-        # Fallback para algum modelo default, se necessário
-        model_id = "google/mt5-base"
+        model_id = "recogna-nlp/ptt5-base-summ-xlsum"
 
     try:
         client = InferenceClient(model=model_id, token=token)
@@ -178,29 +180,26 @@ def _summarize_with_hf(text: str, ai_cfg: dict) -> str:
         logger.warning("[IA] Erro ao inicializar InferenceClient: %s", exc)
         return ""
 
-    # Parâmetros opcionais (nem todo endpoint respeita, mas não atrapalha)
-    hf_cfg = (ai_cfg.get("huggingface") or {}) if isinstance(ai_cfg.get("huggingface"), dict) else {}
-    max_new_tokens = int(hf_cfg.get("max_new_tokens", 200))
     try:
         logger.info("[IA] Chamando summarization() para o modelo HF: %s", model_id)
-        result = client.summarization(
-            text,
-            max_new_tokens=max_new_tokens,
-        )
+        # IMPORTANTE: sem passar max_new_tokens aqui, para não quebrar
+        result = client.summarization(text)
     except Exception as exc:
         logger.warning("[IA] Erro ao chamar Hugging Face Inference: %s", exc)
         return ""
 
-    # Possíveis formatos de retorno
     summary = ""
-    if isinstance(result, dict) and "summary_text" in result:
+    # Possíveis formatos de retorno
+    if hasattr(result, "summary_text"):
+        summary = result.summary_text
+    elif isinstance(result, dict) and "summary_text" in result:
         summary = result["summary_text"]
-    elif isinstance(result, list) and result and isinstance(result[0], dict) and "summary_text" in result[0]:
-        summary = result[0]["summary_text"]
+    elif isinstance(result, list) and result and isinstance(result[0], dict):
+        summary = result[0].get("summary_text", "")
     elif isinstance(result, str):
         summary = result
     else:
-        logger.warning("[IA] Resultado de summarization em formato inesperado: %r", result)
+        summary = str(result)
 
     return summary
 
@@ -228,7 +227,6 @@ def generate_summary_ia(full_text: str, cfg: dict) -> str:
         return ""
 
     provider = (ai_cfg.get("provider") or "gemini").strip().lower()
-
     summary = ""
 
     # Provider "gemini" ou "fallback" → tenta Gemini primeiro
