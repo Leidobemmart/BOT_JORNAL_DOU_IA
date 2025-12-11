@@ -367,19 +367,16 @@ def send_email(items: list[dict], cfg: dict) -> None:
     """
     Monta e envia o e-mail de informe com os atos encontrados.
 
-    Layout:
+    Layout (texto):
 
     Bom dia! Seguem as principais publicações fiscais/tributárias do DOU de 03/12/2025.
 
     Janela considerada: 02/12/2025 a 03/12/2025 | Período lógico: today
 
-    RESOLUÇÃO 38 - RESOLUÇÃO NORMATIVA IBRAM Nº 38, DE 28 DE NOVEMBRO DE 2025
+    SOLUÇÃO DE CONSULTA 98.366
     Resumo: [texto da IA, se for aproveitável]
-    Órgão: Ministério da Cultura/Instituto Brasileiro de Museus · DOU: 03/12/2025 · clique aqui para acessar a publicação
+    Órgão: Min. Fazenda / RFB / STC · DOU: 03/12/2025 · ver no DOU: https://...
 
-    PORTARIA 798 - PORTARIA SEFIC/MINC Nº 798, DE 2 DE DEZEMBRO DE 2025
-    Resumo: ...
-    Órgão: ...
     ...
     """
 
@@ -417,6 +414,42 @@ def send_email(items: list[dict], cfg: dict) -> None:
             return ""
 
         return r
+
+    def shorten_orgao(orgao: str) -> str:
+        """
+        Encurta a cadeia do órgão para não ficar uma frase enorme no e-mail.
+        Ex.: Ministério da Fazenda/Secretaria Especial da Receita Federal do Brasil/...
+             -> Min. Fazenda / RFB / STC
+        """
+        if not orgao:
+            return ""
+        parts = [p.strip() for p in orgao.split("/") if p.strip()]
+        if not parts:
+            return ""
+
+        repl = {
+            "Ministério da Fazenda": "Min. Fazenda",
+            "Secretaria Especial da Receita Federal do Brasil": "RFB",
+            "Subsecretaria de Tributação e Contencioso": "STC",
+            "Superintendência Regional da Receita Federal do Brasil 8ª Região Fiscal": "SRRF08",
+            "Delegacia da Receita Federal do Brasil em Sorocaba": "DRF Sorocaba",
+            "Ministério da Ciência, Tecnologia e Inovação": "MCTI",
+            "Conselho Nacional de Desenvolvimento Científico e Tecnológico": "CNPq",
+            "Conselho Nacional de Política Fazendária": "Confaz",
+        }
+
+        for i, p in enumerate(parts):
+            if p in repl:
+                parts[i] = repl[p]
+
+        # Mantém só os 2–3 primeiros níveis
+        parts = parts[:3]
+        s = " / ".join(parts)
+
+        # Corta se ainda ficar muito longo
+        if len(s) > 120:
+            s = s[:117] + "..."
+        return s
 
     # ----------------- Destinatários -----------------
     to_list = _extract_emails(cfg["email"].get("to")) or _extract_emails(os.getenv("MAIL_TO"))
@@ -479,10 +512,11 @@ def send_email(items: list[dict], cfg: dict) -> None:
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
 
-            # Manchete no formato que você usa
-            headline = titulo
+            # Manchete mais enxuta: tipo + número; se não tiver, cai para o título
             if tipo or num:
-                headline = f"{tipo} {num} - {titulo}".strip(" -")
+                headline = f"{tipo} {num}".strip()
+            else:
+                headline = titulo
 
             text_lines.append(headline)
 
@@ -490,12 +524,16 @@ def send_email(items: list[dict], cfg: dict) -> None:
                 text_lines.append(f"Resumo: {resumo_ia}")
 
             footer_parts = []
-            if org:
+            org_short = shorten_orgao(org) if org else ""
+            if org_short:
+                footer_parts.append(f"Órgão: {org_short}")
+            elif org:
                 footer_parts.append(f"Órgão: {org}")
+
             if data_pub:
                 footer_parts.append(f"DOU: {data_pub}")
             if url:
-                footer_parts.append(f"clique aqui para acessar a publicação ({url})")
+                footer_parts.append(f"ver no DOU: {url}")
 
             if footer_parts:
                 text_lines.append(" · ".join(footer_parts))
@@ -506,8 +544,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
     text_lines.append(f"Critérios de busca: {crit_line}")
     if ai_enabled:
         text_lines.append(
-            "Resumos gerados automaticamente por IA (Hugging Face). "
-            "Sempre confira o texto oficial no DOU."
+            "Resumos gerados automaticamente por IA. Sempre confira o texto oficial no DOU."
         )
 
     text_body = "\n".join(text_lines)
@@ -543,9 +580,12 @@ def send_email(items: list[dict], cfg: dict) -> None:
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
 
-            headline = titulo
             if tipo or num:
-                headline = f"{tipo} {num} - {titulo}".strip(" -")
+                headline = f"{tipo} {num}".strip()
+            else:
+                headline = titulo
+
+            org_short = shorten_orgao(org) if org else ""
 
             html_lines.append("<p style='margin-bottom:10px;'>")
             html_lines.append(f"<b>{_escape_html(headline)}</b><br/>")
@@ -553,19 +593,21 @@ def send_email(items: list[dict], cfg: dict) -> None:
             if resumo_ia:
                 html_lines.append(
                     "<span style='font-size:13px;color:#000;'>"
-                    f"{_escape_html(resumo_ia)}"
+                    f"<b>Resumo:</b> {_escape_html(resumo_ia)}"
                     "</span><br/>"
                 )
 
             footer_parts = []
-            if org:
+            if org_short:
+                footer_parts.append(f"Órgão: {_escape_html(org_short)}")
+            elif org:
                 footer_parts.append(f"Órgão: {_escape_html(org)}")
             if data_pub:
                 footer_parts.append(f"DOU: {_escape_html(data_pub)}")
             if url:
                 footer_parts.append(
                     f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>"
-                    f"clique aqui</a> para acessar a publicação"
+                    f"ver no DOU</a>"
                 )
 
             if footer_parts:
@@ -586,7 +628,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
     if ai_enabled:
         html_lines.append(
             "<p style='font-size:11px;color:#999;'>"
-            "Resumos gerados automaticamente por IA (Hugging Face). "
+            "Resumos gerados automaticamente por IA. "
             "Sempre confira o texto oficial no DOU."
             "</p>"
         )
