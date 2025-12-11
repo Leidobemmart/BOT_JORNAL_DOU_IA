@@ -700,7 +700,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
         f"{_escape_html(crit_line)}"
         "</p>"
     )
-
+    
+    # Filtros por órgão — linha opcional
         org_filters = (cfg.get("filters") or {}).get("orgao_keywords") or []
     org_filters = [o for o in org_filters if o]
     if org_filters:
