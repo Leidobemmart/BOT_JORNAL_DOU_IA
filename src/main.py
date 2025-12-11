@@ -171,7 +171,7 @@ def _summarize_with_gemini(text: str, ai_cfg: dict) -> str:
         logger.warning("[IA] Falha ao configurar Gemini: %s", exc)
         return ""
 
-    model_id = (ai_cfg.get("model") or "gemini-1.5-flash").strip()
+    model_id = (ai_cfg.get("model") or "gemini-2.5-flash").strip()
     g_cfg = (ai_cfg.get("gemini") or {}) if isinstance(ai_cfg.get("gemini"), dict) else {}
     temperature = float(g_cfg.get("temperature", 0.2))
     max_output_tokens = int(g_cfg.get("max_tokens", 300))
