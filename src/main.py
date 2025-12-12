@@ -431,6 +431,14 @@ def extract_body_snippet(texto_bruto: str, max_chars: int = 320) -> str:
     text = " ".join(cleaned_lines)
     text = re.sub(r"\s+", " ", text).strip()
 
+    # Se existir "Assunto:", geralmente é o melhor ponto de corte (ex.: Solução de Consulta)
+    m_assunto = re.search(r"\bAssunto:\s*", text, re.I)
+    if m_assunto:
+        text = text[m_assunto.end():].strip()
+
+    # Remove metadados em linha (data/edição/página/órgão) quando grudados no texto
+    text = re.sub(r"\b\d{2}/\d{2}/\d{4}\s+\d+\s+\d+\s+Minist[eé]rio\b", "Ministério", text)
+
     # Heurística: corta antes do "miolo" normativo (quando dá)
     # Procuramos um início típico do corpo, tipo: "O ADVOGADO-GERAL...", "O PRESIDENTE...", "Resolve:", etc.
     body_markers = [
