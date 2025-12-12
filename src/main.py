@@ -572,39 +572,32 @@ def send_email(items: list[dict], cfg: dict) -> None:
         for it in items:
             titulo = (it.get("titulo") or "").strip()
             org = (it.get("orgao") or "").strip()
-            tipo = (it.get("tipo") or "").strip()
-            num = (it.get("numero") or "").strip()
             data_pub = (it.get("data") or "").strip()
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
 
-            # Manchete: tipo + número; se não tiver, cai para o título
-            if tipo or num:
-                headline = f"{tipo} {num}".strip()
-            else:
-                headline = titulo
-
-            text_lines.append(headline)
-
-            # Subtítulo: título oficial completo, se diferente do headline
-            if titulo and titulo != headline:
+            # 1) Título completo (apenas uma vez)
+            if titulo:
                 text_lines.append(titulo)
 
+            # 2) Resumo (se houver)
             if resumo_ia:
                 text_lines.append(f"Resumo: {resumo_ia}")
 
+            # 3) Linha curta (sem "Órgão:" e sem "DOU:")
+            org_short = shorten_orgao(org) if org else ""
             footer_parts = []
-            if org:
-                footer_parts.append(f"Órgão: {org}")
+            if org_short:
+                footer_parts.append(org_short)
             if data_pub:
-                footer_parts.append(f"DOU: {data_pub}")
+                footer_parts.append(data_pub)
             if url:
                 footer_parts.append(f"ver no DOU ({url})")
 
             if footer_parts:
                 text_lines.append(" · ".join(footer_parts))
 
-            text_lines.append("")  # linha em branco entre itens
+            text_lines.append("")
 
     text_lines.append("—")
     text_lines.append(f"Critérios de busca: {crit_line}")
@@ -642,31 +635,18 @@ def send_email(items: list[dict], cfg: dict) -> None:
         for it in items:
             titulo = (it.get("titulo") or "").strip()
             org = (it.get("orgao") or "").strip()
-            tipo = (it.get("tipo") or "").strip()
-            num = (it.get("numero") or "").strip()
             data_pub = (it.get("data") or "").strip()
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
 
-            # Manchete: tipo + número; se não tiver, cai para o título
-            if tipo or num:
-                headline = f"{tipo} {num}".strip()
-            else:
-                headline = titulo
-
             org_short = shorten_orgao(org) if org else ""
 
-            html_lines.append("<p style='margin-bottom:10px;'>")
-            html_lines.append(f"<b>{_escape_html(headline)}</b><br/>")
+            html_lines.append("<p style='margin-bottom:12px;'>")
 
-            # Subtítulo: título oficial completo, se diferente do headline
-            if titulo and titulo != headline:
-                html_lines.append(
-                    "<span style='font-size:13px;color:#000;'>"
-                    f"{_escape_html(titulo)}"
-                    "</span><br/>"
-                )
+            # 1) Título completo
+            html_lines.append(f"<b>{_escape_html(titulo)}</b><br/>" if titulo else "")
 
+            # 2) Resumo (se houver)
             if resumo_ia:
                 html_lines.append(
                     "<span style='font-size:13px;color:#000;'>"
@@ -674,15 +654,15 @@ def send_email(items: list[dict], cfg: dict) -> None:
                     "</span><br/>"
                 )
 
+            # 3) Linha curta (sem rótulos)
             footer_parts = []
             if org_short:
-                footer_parts.append(f"Órgão: {_escape_html(org_short)}")
+                footer_parts.append(_escape_html(org_short))
             if data_pub:
-                footer_parts.append(f"DOU: {_escape_html(data_pub)}")
+                footer_parts.append(_escape_html(data_pub))
             if url:
                 footer_parts.append(
-                    f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>"
-                    f"ver no DOU</a>"
+                    f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>ver no DOU</a>"
                 )
 
             if footer_parts:
