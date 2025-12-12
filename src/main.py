@@ -682,6 +682,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
             org = (it.get("orgao") or "").strip()
             data_pub = (it.get("data") or "").strip()
             url = (it.get("url") or "").strip()
+            resumo_editorial = (it.get("resumo_editorial") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
             snippet = extract_body_snippet(it.get("texto_bruto") or "", max_chars=320)
 
@@ -690,8 +691,10 @@ def send_email(items: list[dict], cfg: dict) -> None:
             if titulo:
                 text_lines.append(titulo)
 
-            # 2) Resumo (se houver)
-            if resumo_ia:
+            # 2) Resumo (prioridade: editorial -> IA -> trecho)
+            if resumo_editorial:
+                text_lines.append(f"Resumo: {resumo_editorial}")
+            elif resumo_ia:
                 text_lines.append(f"Resumo: {resumo_ia}")
             else:
                 if snippet:
@@ -751,6 +754,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
             org = (it.get("orgao") or "").strip()
             data_pub = (it.get("data") or "").strip()
             url = (it.get("url") or "").strip()
+            resumo_editorial = (it.get("resumo_editorial") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
             snippet = extract_body_snippet(it.get("texto_bruto") or "", max_chars=320)
 
@@ -761,8 +765,14 @@ def send_email(items: list[dict], cfg: dict) -> None:
             # 1) Título completo
             html_lines.append(f"<b>{_escape_html(titulo)}</b><br/>" if titulo else "")
 
-            # 2) Resumo (se houver)
-            if resumo_ia:
+            # 2) Resumo (prioridade: editorial -> IA -> trecho)
+            if resumo_editorial:
+                html_lines.append(
+                    "<span style='font-size:13px;color:#000;'>"
+                    f"<b>Resumo:</b> {_escape_html(resumo_editorial)}"
+                    "</span><br/>"
+                )
+            elif resumo_ia:
                 html_lines.append(
                     "<span style='font-size:13px;color:#000;'>"
                     f"<b>Resumo:</b> {_escape_html(resumo_ia)}"
@@ -1278,6 +1288,8 @@ async def enrich_listing_item(page, item: dict) -> dict:
     if not data_pub:
         data_pub = datetime.now().strftime("%d/%m/%Y")
 
+    # resumo editorial (quando existir)
+    resumo_editorial = extract_editorial_summary(soup, max_chars=400)
     # texto limpo para IA (corpo da matéria, sem menus)
     clean_text = extract_clean_text(soup)
     # limita para não explodir a IA
@@ -1291,6 +1303,7 @@ async def enrich_listing_item(page, item: dict) -> dict:
         "numero": numero,
         "data": data_pub,
         "texto_bruto": clean_text,
+        "resumo_editorial": resumo_editorial,
     }
     
 #------------------------------------------------------------
