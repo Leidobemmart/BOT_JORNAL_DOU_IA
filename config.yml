@@ -140,7 +140,7 @@ email:
     - "diogo.neis@martinelliaud.com.br"
     #- "karine.batista@martinelliaud.com.br"
     #- "gustavo@martinelliaud.com.br"
-    #- "cassiano@martinelliaud.com.br"
+    - "cassiano@martinelliaud.com.br"
 
   # Cópia (CC) - pode ser sobrescrito via MAIL_CC
   cc:
