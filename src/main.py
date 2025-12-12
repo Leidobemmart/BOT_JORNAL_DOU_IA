@@ -383,6 +383,106 @@ def shorten_orgao(orgao: str) -> str:
         return o[:117] + "..."
     return o
 
+def extract_body_snippet(texto_bruto: str, max_chars: int = 320) -> str:
+    """
+    Extrai um "primeiro trecho do corpo" (fallback sem IA) a partir do texto bruto.
+    Remove cabeçalhos comuns do DOU e pega as primeiras frases do conteúdo normativo.
+
+    Retorna string vazia se não conseguir achar algo útil.
+    """
+    if not texto_bruto:
+        return ""
+
+    t = (texto_bruto or "").strip()
+    if not t:
+        return ""
+
+    # Normaliza espaços/quebras
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r"\n{2,}", "\n", t)
+
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+
+    # Remove linhas típicas do cabeçalho do DOU
+    header_prefixes = (
+        "Brasão do Brasil",
+        "Diário Oficial da União",
+        "Publicado em:",
+        "Edição:",
+        "Seção:",
+        "Página:",
+        "Órgão:",
+    )
+    cleaned_lines = []
+    for ln in lines:
+        if any(ln.startswith(p) for p in header_prefixes):
+            continue
+        # Também ignora linhas isoladas de separador
+        if ln in {"|", "•", "-"}:
+            continue
+        cleaned_lines.append(ln)
+
+    if not cleaned_lines:
+        cleaned_lines = lines[:]  # fallback
+
+    # Junta tudo num texto contínuo
+    text = " ".join(cleaned_lines)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Heurística: corta antes do "miolo" normativo (quando dá)
+    # Procuramos um início típico do corpo, tipo: "O ADVOGADO-GERAL...", "O PRESIDENTE...", "Resolve:", etc.
+    body_markers = [
+        r"\bO\s+[A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ][A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ\s\-]{3,}?\b",  # "O ADVOGADO-GERAL..."
+        r"\bRESOLVE\b",
+        r"\bDECRETA\b",
+        r"\bCONSIDERANDO\b",
+        r"\bArt\.\s*\d+º?\b",
+    ]
+    cut_pos = None
+    for pat in body_markers:
+        m = re.search(pat, text)
+        if m:
+            cut_pos = m.start()
+            break
+
+    if cut_pos is not None and cut_pos > 0:
+        text = text[cut_pos:].strip()
+
+    # Evita retornar algo que ainda seja só metadado / título repetido
+    bad_starts = (
+        "Ministério",
+        "PORTARIA",
+        "LEI",
+        "DECRETO",
+        "RESOLUÇÃO",
+        "DESPACHO",
+        "ATO DECLARATÓRIO",
+        "SOLUÇÃO DE CONSULTA",
+        "Solução de Consulta",
+        "Ato Declaratório",
+    )
+    if any(text.startswith(bs) for bs in bad_starts):
+        # tenta pegar após a primeira frase/linha de título
+        # (busca o primeiro ponto seguido de espaço)
+        dot = text.find(". ")
+        if 0 <= dot < 220:
+            text = text[dot + 2 :].strip()
+
+    # Limite e acabamento
+    if len(text) > max_chars:
+        text = text[:max_chars]
+        if " " in text:
+            text = text.rsplit(" ", 1)[0].strip()
+        text += "..."
+
+    # Muito curto geralmente é inútil
+    if len(text) < 60:
+        return ""
+
+    return text
+
 # ---------------------------------------------------------------------------
 # Heurísticas de texto/link
 # ---------------------------------------------------------------------------
@@ -575,6 +675,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
             data_pub = (it.get("data") or "").strip()
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
+            snippet = extract_body_snippet(it.get("texto_bruto") or "", max_chars=320)
+
 
             # 1) Título completo (apenas uma vez)
             if titulo:
@@ -583,6 +685,10 @@ def send_email(items: list[dict], cfg: dict) -> None:
             # 2) Resumo (se houver)
             if resumo_ia:
                 text_lines.append(f"Resumo: {resumo_ia}")
+            else:
+                if snippet:
+                    text_lines.append(f"Trecho: {snippet}")
+
 
             # 3) Linha curta (sem "Órgão:" e sem "DOU:")
             org_short = shorten_orgao(org) if org else ""
@@ -638,6 +744,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
             data_pub = (it.get("data") or "").strip()
             url = (it.get("url") or "").strip()
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
+            snippet = extract_body_snippet(it.get("texto_bruto") or "", max_chars=320)
 
             org_short = shorten_orgao(org) if org else ""
 
@@ -653,6 +760,13 @@ def send_email(items: list[dict], cfg: dict) -> None:
                     f"<b>Resumo:</b> {_escape_html(resumo_ia)}"
                     "</span><br/>"
                 )
+            else:
+                if snippet:
+                    html_lines.append(
+                        "<span style='font-size:13px;color:#000;'>"
+                        f"<b>Trecho:</b> {_escape_html(snippet)}"
+                        "</span><br/>"
+                    )
 
             # 3) Linha curta (sem rótulos)
             footer_parts = []
