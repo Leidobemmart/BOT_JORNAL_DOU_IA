@@ -1377,21 +1377,6 @@ def extract_editorial_summary(html_or_soup, max_chars: int = 320) -> str:
 
     return ""
 
-    summary = candidates[0]
-
-    # 4) Limite final e acabamento
-    if len(summary) > max_chars:
-        summary = summary[:max_chars]
-        if " " in summary:
-            summary = summary.rsplit(" ", 1)[0].strip()
-        summary += "..."
-
-    # Garante pontuação final
-    if not summary.endswith((".", "!", "?", ";")):
-        summary += "."
-
-    return summary
-
 # ---------------------------------------------------------------------------
 # Ordenação / dedupe helpers
 # ---------------------------------------------------------------------------
