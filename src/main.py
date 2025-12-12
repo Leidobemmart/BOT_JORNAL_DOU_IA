@@ -691,11 +691,11 @@ def send_email(items: list[dict], cfg: dict) -> None:
             if titulo:
                 text_lines.append(titulo)
 
-            # 2) Resumo (prioridade: editorial -> IA -> trecho)
-            if resumo_editorial:
-                text_lines.append(f"Resumo: {resumo_editorial}")
-            elif resumo_ia:
+            # 2) Resumo (prioridade: IA -> editorial -> trecho)
+            if resumo_ia:
                 text_lines.append(f"Resumo: {resumo_ia}")
+            elif resumo_editorial:
+                text_lines.append(f"Resumo: {resumo_editorial}")
             else:
                 if snippet:
                     text_lines.append(f"Trecho: {snippet}")
