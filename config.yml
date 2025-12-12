@@ -167,7 +167,7 @@ email:
 ai:
   summaries:
     # Ativar/desativar resumos
-    enabled: true
+    enabled: false #true
     
     # Provedor: "gemini" | "hf" | "fallback"
     # - "gemini": tenta só Gemini
