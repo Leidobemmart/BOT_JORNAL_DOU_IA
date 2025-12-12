@@ -1515,7 +1515,7 @@ async def run() -> None:
 
     relevant.sort(key=_sort_key, reverse=True)
 
-        # ---- IA: gerar resumos das matérias, se habilitado ----
+    # ---- IA: gerar resumos das matérias, se habilitado ----
     ai_cfg = (cfg.get("ai") or {}).get("summaries") or {}
     if ai_cfg.get("enabled"):
         for r in relevant:
