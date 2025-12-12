@@ -766,18 +766,19 @@ def send_email(items: list[dict], cfg: dict) -> None:
             html_lines.append(f"<b>{_escape_html(titulo)}</b><br/>" if titulo else "")
 
             # 2) Resumo (prioridade: editorial -> IA -> trecho)
-            if resumo_editorial:
-                html_lines.append(
-                    "<span style='font-size:13px;color:#000;'>"
-                    f"<b>Resumo:</b> {_escape_html(resumo_editorial)}"
-                    "</span><br/>"
-                )
-            elif resumo_ia:
+            if resumo_ia:
                 html_lines.append(
                     "<span style='font-size:13px;color:#000;'>"
                     f"<b>Resumo:</b> {_escape_html(resumo_ia)}"
                     "</span><br/>"
                 )
+            elif resumo_editorial:
+                html_lines.append(
+                    "<span style='font-size:13px;color:#000;'>"
+                    f"<b>Resumo:</b> {_escape_html(resumo_editorial)}"
+                    "</span><br/>"
+                )
+
             else:
                 if snippet:
                     html_lines.append(
