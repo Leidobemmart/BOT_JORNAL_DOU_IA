@@ -1171,55 +1171,75 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
 
     return all_items
 
-def extract_clean_text(soup: BeautifulSoup) -> str:
+def extract_clean_text(soup: BeautifulSoup, max_chars: int = 4000) -> str:
     """
-    Extrai texto útil da matéria do DOU, removendo menus, navegação e lixo
-    típico do portal, para uso na IA (texto_bruto).
+    Extrai o texto principal da matéria do DOU de forma cirúrgica,
+    priorizando o conteúdo normativo real para uso pela IA.
+
+    Estratégia:
+    - usa div.texto-dou como fonte principal;
+    - ignora <p class="identifica"> (título);
+    - coleta apenas <p> relevantes (dou-paragraph, ementa ou sem classe);
+    - remove ruídos comuns do portal;
+    - devolve texto contínuo e limpo.
     """
-    # Tenta identificar o container principal da matéria
-    main = (
-        soup.select_one("div#materia") or
-        soup.select_one("article") or
-        soup.select_one("div.materia") or
-        soup.select_one("div.coluna-2") or
-        soup.body
-    )
 
-    raw = main.get_text("\n", strip=True)
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if not soup:
+        return ""
 
-    # Trechos típicos de navegação/lixo que queremos remover
-    noise = [
-        "Página Inicial",
-        "Página inicial",
-        "Atividades da Página inicial",
-        "Atividades da página inicial",
-        "Clique aqui para",
-        "Acesse o site",
-        "Voltar para a página inicial",
-        "Reportar erro",
-        "Menu",
-        "Buscar:",
-        "Conteúdo da Página",
-        "Conteudo da Pagina",
-        "Assinatura eletrônica",
-        "Assinatura eletronica",
-    ]
+    # 1) Container principal do texto do DOU
+    container = soup.select_one("div.texto-dou")
+    if not container:
+        # fallback seguro
+        container = soup.select_one("div#materia") or soup.body
+        if not container:
+            return ""
 
-    clean = []
-    for ln in lines:
-        low = ln.lower()
-        if any(n.lower() in low for n in noise):
+    paragraphs = []
+    for p in container.find_all("p"):
+        classes = p.get("class") or []
+
+        # ignora o título repetido
+        if "identifica" in classes:
             continue
-        clean.append(ln)
 
-    texto = "\n".join(clean).strip()
+        text = p.get_text(" ", strip=True)
+        if not text:
+            continue
 
-    # Se ficar pouco texto, não arrisca perder conteúdo: usa o bruto
-    if len(texto) < 300:
-        return raw.strip()
+        low = text.lower()
 
-    return texto
+        # ruídos típicos do portal
+        noise_snippets = [
+            "clique aqui",
+            "acesse o site",
+            "voltar para a página",
+            "reportar erro",
+            "menu",
+            "assinatura eletrônica",
+            "verificação de autenticidade",
+            "diário oficial da união",
+        ]
+        if any(n in low for n in noise_snippets):
+            continue
+
+        paragraphs.append(text)
+
+    if not paragraphs:
+        return ""
+
+    # 2) Junta tudo em um texto contínuo
+    text = " ".join(paragraphs)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # 3) Limite de tamanho (proteção para IA)
+    if max_chars and len(text) > max_chars:
+        text = text[:max_chars]
+        if " " in text:
+            text = text.rsplit(" ", 1)[0].strip()
+        text += "..."
+
+    return text
 
 async def enrich_listing_item(page, item: dict) -> dict:
     """
