@@ -1292,7 +1292,105 @@ async def enrich_listing_item(page, item: dict) -> dict:
         "data": data_pub,
         "texto_bruto": clean_text,
     }
+    
+#------------------------------------------------------------
+# Extrai o resumo editorial do DOU
+#------------------------------------------------------------
 
+def extract_editorial_summary(soup: BeautifulSoup, max_chars: int = 400) -> str:
+    """
+    Extrai o resumo editorial do DOU (quando existir), normalmente exibido logo
+    abaixo do título da matéria, antes do corpo normativo.
+
+    Heurísticas:
+    - procura parágrafos curtos logo após o título;
+    - descarta texto claramente normativo ou metalinguístico;
+    - evita repetir o título;
+    - retorna string vazia se não encontrar algo confiável.
+    """
+    if not soup:
+        return ""
+
+    # 1) Identifica o título principal
+    title_el = (
+        soup.find("h1") or
+        soup.find("h2") or
+        soup.select_one(".titulo") or
+        soup.select_one(".titulo-principal")
+    )
+
+    if not title_el:
+        return ""
+
+    title_text = title_el.get_text(" ", strip=True)
+    title_norm = normalize(title_text)
+
+    # 2) Percorre elementos logo após o título
+    candidates = []
+    for el in title_el.find_all_next(["p", "div"], limit=8):
+        txt = el.get_text(" ", strip=True)
+        if not txt:
+            continue
+
+        # Normalizações básicas
+        txt_clean = re.sub(r"\s+", " ", txt).strip()
+        low = txt_clean.lower()
+
+        # 3) Filtros de descarte (normativo / lixo)
+        if any(
+            low.startswith(prefix)
+            for prefix in (
+                "art.", "artigo", "resolve", "decreta", "considerando",
+                "o ministro", "o presidente", "o advogado-geral",
+                "o auditor", "o secretário", "o diretor",
+            )
+        ):
+            break  # a partir daqui já entrou no corpo normativo
+
+        if any(
+            kw in low
+            for kw in (
+                "diário oficial da união",
+                "edição nº",
+                "seção",
+                "página",
+                "brasão do brasil",
+                "publicado em",
+            )
+        ):
+            continue
+
+        # Evita repetir o título
+        if normalize(txt_clean) == title_norm:
+            continue
+
+        # Tamanho razoável para resumo editorial
+        if len(txt_clean) < 40 or len(txt_clean) > 600:
+            continue
+
+        candidates.append(txt_clean)
+
+        # geralmente o primeiro bom já é suficiente
+        if len(candidates) >= 2:
+            break
+
+    if not candidates:
+        return ""
+
+    summary = candidates[0]
+
+    # 4) Limite final e acabamento
+    if len(summary) > max_chars:
+        summary = summary[:max_chars]
+        if " " in summary:
+            summary = summary.rsplit(" ", 1)[0].strip()
+        summary += "..."
+
+    # Garante pontuação final
+    if not summary.endswith((".", "!", "?", ";")):
+        summary += "."
+
+    return summary
 
 # ---------------------------------------------------------------------------
 # Ordenação / dedupe helpers
