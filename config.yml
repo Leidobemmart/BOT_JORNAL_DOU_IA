@@ -138,7 +138,7 @@ email:
   # Destinatários principais (TO)
   to:
     - "diogo.neis@martinelliaud.com.br"
-    #- "karine.batista@martinelliaud.com.br"
+    - "karine.batista@martinelliaud.com.br"
     - "gustavo@martinelliaud.com.br"
     - "cassiano@martinelliaud.com.br"
     - "ueliton.sinhoreto@martinelliaud.com.br"
