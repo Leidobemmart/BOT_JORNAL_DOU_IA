@@ -124,6 +124,7 @@ filters:
     - "COMUNICADO"
     - "ATO COTEPE"
     - "ATO"
+    - "LEI"
 
   # Filtro opcional por órgão (comente para desativar)
   orgao_keywords:
