@@ -122,6 +122,8 @@ filters:
     - "DESPACHO DECISÓRIO"
     - "DESPACHO DECISORIO"
     - "COMUNICADO"
+    - "ATO COTEPE"
+    - "ATO"
 
   # Filtro opcional por órgão (comente para desativar)
   orgao_keywords:
