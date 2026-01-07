@@ -62,6 +62,7 @@ search:
     - "legislação fiscal"
     - "regime tributário"
     - "tratamento tributário"
+    - "imposto de renda"
 
   # Enriquecer cada item abrindo a matéria
   enrich_listing: true
@@ -134,6 +135,7 @@ filters:
     - "Banco Central do Brasil"
     - "Ministério da Ciência, Tecnologia e Inovação"
     - "Conselho Nacional de Política Fazendária"
+    - "Atos do Poder Legislativo"
 
 email:
   # Prefixo do assunto
