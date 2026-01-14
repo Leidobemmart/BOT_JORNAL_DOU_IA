@@ -23,7 +23,6 @@ search:
     - "Lei nº 8.248"
     - "Lei da Informática"
     - "Rota 2030"
-    - "Portaria MCTI"
 
     # Tributos federais principais
     - "IRPJ"
@@ -37,6 +36,8 @@ search:
     - "CIDE"
     - "ITR"
     - "ICMS"
+    - "IBS"
+    - "CBS"
 
     # Obrigações acessórias / SPED / créditos
     - "DCTF"
