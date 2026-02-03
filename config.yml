@@ -108,6 +108,10 @@ filters:
     - "acesso-"
     - "govbr"
 
+  # Blacklist filtra o titulo
+  reject_title_substrings:
+    - "PORTARIA SETAD/MCTI Nº"
+
   # Palavras-chave no TÍTULO
   title_keywords:
     - "INSTRUÇÃO NORMATIVA"
