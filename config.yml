@@ -108,9 +108,9 @@ filters:
     - "acesso-"
     - "govbr"
 
-  # Blacklist filtra o titulo
+  ################################################################33 Blacklist filtra o titulo #######################################
   reject_title_substrings:
-    - "PORTARIA SETAD/MCTI Nº"
+    #- "PORTARIA SETAD/MCTI Nº"
 
   # Palavras-chave no TÍTULO
   title_keywords:
