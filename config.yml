@@ -150,16 +150,7 @@ email:
   # Destinatários principais (TO)
   to:
     - "diogo.neis@martinelliaud.com.br"
-    - "karine.batista@martinelliaud.com.br"
-    - "gustavo@martinelliaud.com.br"
-    - "cassiano@martinelliaud.com.br"
-    - "ueliton.sinhoreto@martinelliaud.com.br"
-    - "hiorhana@martinelliaud.com.br"
-    - "taimara.carolina@martinelliaud.com.br"
-    - "julia.simas@martinelliaud.com.br"
-    - "larissa.bernardo@martinelliaud.com.br"
-    - "flavio@martinelliaud.com.br"
-    - "elaine.peters@martinelliaud.com.br"
+    #- "karine.batista@martinelliaud.com.br"- "gustavo@martinelliaud.com.br"    - "cassiano@martinelliaud.com.br"    - "ueliton.sinhoreto@martinelliaud.com.br"    - "hiorhana@martinelliaud.com.br"    - "taimara.carolina@martinelliaud.com.br"    - "julia.simas@martinelliaud.com.br"    - "larissa.bernardo@martinelliaud.com.br"- "flavio@martinelliaud.com.br"    - "elaine.peters@martinelliaud.com.br"
 
   # Cópia (CC) - pode ser sobrescrito via MAIL_CC
   cc:
@@ -187,16 +178,16 @@ email:
 ai:
   summaries:
     # Ativar/desativar resumos
-    enabled: false #true
+    enabled: true #true
     
     # Provedor: "gemini" | "hf" | "fallback"
-    # - "gemini": tenta só Gemini
-    # - "hf": tenta só Hugging Face
-    # - "fallback": tenta Gemini e depois HF
+     - "gemini": tenta só Gemini
+     - "hf": tenta só Hugging Face
+     - "fallback": tenta Gemini e depois HF
     provider: "fallback"          # já deixo pronto para Gemini + HF
     
     # Modelo principal (Gemini)
-    #model: "gemini-2.5-flash"
+    model: "gemini-2.5-flash"
     
     # Modelo específico para Hugging Face (fallback)
     hf_model: "recogna-nlp/ptt5-base-summ-temario" #"recogna-nlp/ptt5-base-summ-xlsum" 
