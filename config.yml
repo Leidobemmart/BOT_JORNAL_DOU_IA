@@ -181,9 +181,9 @@ ai:
     enabled: true #true
     
     # Provedor: "gemini" | "hf" | "fallback"
-     - "gemini": tenta só Gemini
-     - "hf": tenta só Hugging Face
-     - "fallback": tenta Gemini e depois HF
+    # - "gemini": tenta só Gemini
+    # - "hf": tenta só Hugging Face
+    # - "fallback": tenta Gemini e depois HF
     provider: "fallback"          # já deixo pronto para Gemini + HF
     
     # Modelo principal (Gemini)
