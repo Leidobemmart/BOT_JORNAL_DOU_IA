@@ -569,19 +569,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
     """
     Monta e envia o e-mail de informe com os atos encontrados.
 
-    Layout texto (plain):
-
-    Bom dia! Seguem as principais publicações fiscais/tributárias do DOU de 11/12/2025.
-    Janela considerada: 10/12/2025 a 11/12/2025 | Período lógico: today
-
-    ATO DECLARATÓRIO 256
-    ATO DECLARATÓRIO EXECUTIVO DECEX/RJO Nº 256, de 10 de dezembro de 2025
-    Resumo: [se disponível]
-    Órgão: Min. Fazenda / RFB / Secretaria-Adjunta · DOU: 11/12/2025 · ver no DOU
-
-    ...
-
-    E-mail HTML segue estrutura similar, com negrito e quebras de linha.
+    - Plain text: mantém formato normal + agrupamento automático (>=4) com resumo por item do grupo.
+    - HTML: mantém formato normal + agrupamento automático (>=4) com resumo por item do grupo.
     """
 
     def _extract_emails(element):
@@ -606,18 +595,117 @@ def send_email(items: list[dict], cfg: dict) -> None:
             return ""
 
         low = r.lower()
-        # Heurísticas para lixo típico
         if "acesse o script" in low:
             return ""
         if "script:" in low:
             return ""
         if "compartilhe o conteudo da pagina" in low or "compartilhe o conteúdo da página" in low:
             return ""
-        # Muito curto = provavelmente não é resumo útil
         if len(r) < 40:
             return ""
-
         return r
+
+    # ----------------- Agrupamento (auto, sem config) -----------------
+
+    def _norm_key(s: str) -> str:
+        # IMPORTANTE: unidecode primeiro, depois upper, para "Nº" virar "NO"
+        s = unidecode(s or "").upper()
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
+    def build_group_key(title: str) -> str:
+        """
+        Gera uma chave de agrupamento automática a partir do título.
+        Remove Nº/numeração e datas, sobrando um 'prefixo estável'.
+        """
+        t = _norm_key(title)
+
+        # remove "Nº 9.853", "N° 236", "No 1.688", "N. 57" etc.
+        t = re.sub(r"\bN(?:(?:DEG)|[ºO°]|\s*O)?\.?\s*[\d\.\-\/]+", "", t)
+
+        # remove datas longas tipo "DE 30 DE JANEIRO DE 2026" / "DE 11 DE DEZEMBRO DE 2025"
+        t = re.sub(r"\bDE\s+\d{1,2}\s+DE\s+[A-Z]+(?:\s+DE\s+\d{4})?\b", "", t)
+
+        # remove "DE 2026" solto no fim
+        t = re.sub(r"\bDE\s+\d{4}\b", "", t)
+
+        # limpa pontuação/duplicidade de espaços
+        t = re.sub(r"[–—\-]+", " ", t)
+        t = re.sub(r"\s+", " ", t).strip()
+
+        # se ficar pequeno demais, não agrupa
+        return t if len(t) >= 10 else ""
+
+    def _extract_num(it: dict) -> str:
+        num = (it.get("numero") or "").strip()
+        if num:
+            return num
+
+        t = (it.get("titulo") or "")
+        m = re.search(r"\bN(?:(?:DEG)|[ºo°]|\s*o)?\.?\s*([\d\.]+(?:/\d{4})?)", t, re.I)
+        return m.group(1).strip() if m else ""
+
+    def _num_to_int(num: str):
+        if not num or "/" in num:
+            return None
+        digits = re.sub(r"\D", "", num)
+        return int(digits) if digits else None
+
+    def _guess_tipo(group_key: str) -> str:
+        for tipo in [
+            "PORTARIA",
+            "INSTRUCAO NORMATIVA",
+            "DECRETO",
+            "LEI",
+            "RESOLUCAO",
+            "DESPACHO",
+            "ATO DECLARATORIO",
+            "ATO DECLARATORIO EXECUTIVO",
+            "SOLUCAO DE CONSULTA",
+        ]:
+            if group_key.startswith(tipo):
+                return tipo.title()
+        return "publicações"
+
+    def group_items_for_plain_text_inplace(items_in: list[dict], min_reps: int = 4) -> list[dict]:
+        """
+        Agrupa mantendo a ordem original:
+        - identifica buckets por group_key
+        - se bucket >= min_reps, emite 1 bloco no ponto da 1ª ocorrência
+        - as demais ocorrências do mesmo bucket são suprimidas
+        """
+        buckets: dict[str, list[int]] = {}
+        for idx, it in enumerate(items_in):
+            key = build_group_key((it.get("titulo") or "").strip())
+            if not key:
+                continue
+            buckets.setdefault(key, []).append(idx)
+
+        group_keys = {k for k, idxs in buckets.items() if len(idxs) >= min_reps}
+
+        out: list[dict] = []
+        emitted: set[str] = set()
+
+        for idx, it in enumerate(items_in):
+            key = build_group_key((it.get("titulo") or "").strip())
+            if key and key in group_keys:
+                if key in emitted:
+                    continue
+                emitted.add(key)
+
+                idxs = buckets[key]
+                group_list = [items_in[i] for i in idxs]
+
+                def _sortk(x):
+                    n = _num_to_int(_extract_num(x))
+                    return (n is None, n or 0, (x.get("titulo") or ""))
+
+                group_list.sort(key=_sortk)
+                out.append({"_is_group": True, "group_key": key, "items": group_list})
+            else:
+                out.append(it)
+
+        return out
 
     # ----------------- Destinatários -----------------
     to_list = _extract_emails(cfg["email"].get("to")) or _extract_emails(os.getenv("MAIL_TO"))
@@ -643,7 +731,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
     period_label = cfg.get("search", {}).get("period_effective")
     days_window = cfg.get("search", {}).get("days_window")
 
-    # Janela (apenas informativo)
     if days_window and days_window > 0:
         hoje = datetime.now(timezone(timedelta(hours=-3)))
         inicio = (hoje - timedelta(days=days_window)).strftime("%d/%m/%Y")
@@ -664,20 +751,86 @@ def send_email(items: list[dict], cfg: dict) -> None:
 
     ai_enabled = bool((cfg.get("ai") or {}).get("summaries", {}).get("enabled"))
 
+    # aplica agrupamento (usado no plain text e no HTML)
+    items_plain = group_items_for_plain_text_inplace(items, min_reps=4)
+
     # ----------------- TEXTO SIMPLES -----------------
     text_lines: list[str] = []
-    text_lines.append(
-        f"Bom dia! Seguem as principais publicações fiscais/tributárias do DOU de {hoje_str}."
-    )
-    text_lines.append(
-        f"Janela considerada: {days_label} | Período lógico: {period_label}"
-    )
+    text_lines.append(f"Bom dia! Seguem as principais publicações fiscais/tributárias do DOU de {hoje_str}.")
+    text_lines.append(f"Janela considerada: {days_label} | Período lógico: {period_label}")
     text_lines.append("")
 
     if not items:
         text_lines.append("Não foram encontradas publicações relevantes para os critérios atuais.")
     else:
-        for it in items:
+        for it in items_plain:
+
+            # --- bloco agrupado (plain text) ---
+            if isinstance(it, dict) and it.get("_is_group"):
+                group_key = it.get("group_key") or "Publicações repetidas"
+                group_list = it.get("items") or []
+
+                # órgão abreviado (1x)
+                org0 = (group_list[0].get("orgao") or "").strip() if group_list else ""
+                org_short = shorten_orgao(org0) if org0 else ""
+
+                # faixa de nº (se todos forem numéricos comparáveis)
+                nums = [_extract_num(x) for x in group_list]
+                ints = [v for v in (_num_to_int(n) for n in nums) if v is not None]
+                faixa = ""
+                if len(ints) == len(group_list) and ints:
+                    faixa = f" (nº {min(ints)} a {max(ints)})"
+
+                tipo = _guess_tipo(group_key)
+                header = f"Foram publicadas {len(group_list)} {tipo}{faixa}: {group_key}"
+                if org_short:
+                    header += f" · {org_short}"
+
+                text_lines.append(header)
+                text_lines.append("")
+
+                for g in group_list:
+                    num = _extract_num(g)
+                    data_pub = (g.get("data") or "").strip()
+                    url = (g.get("url") or "").strip()
+
+                    parts = []
+                    if num:
+                        parts.append(f"Nº {num}")
+                    else:
+                        parts.append((g.get("titulo") or "").strip() or "Sem título")
+                    if data_pub:
+                        parts.append(data_pub)
+
+                    text_lines.append("  " + " · ".join(parts))
+
+                    # resumo abaixo (IA -> editorial -> trecho)
+                    resumo_editorial = (g.get("resumo_editorial") or "").strip()
+                    resumo_ia = clean_summary((g.get("resumo_ia") or "").strip())
+                    snippet = extract_body_snippet(g.get("texto_bruto") or "", max_chars=220)
+
+                    resumo = resumo_ia or resumo_editorial or snippet
+                    resumo = (resumo or "").replace("\n", " ").strip()
+                    
+                    # mantém 200 caracteres no agrupamento
+                    if len(resumo) > 200:
+                        resumo = resumo[:197].rstrip() + "..."
+                    
+                    if resumo:
+                        line = f"    Resumo: {resumo}"
+                        if url:
+                            line += f" Ver no DOU ({url})"
+                        text_lines.append(line)
+                    else:
+                        # se não tiver resumo, ainda assim mostra o link
+                        if url:
+                            text_lines.append(f"    Ver no DOU ({url})")
+                    
+                    text_lines.append("")
+
+                continue
+
+            # --- item normal ---
             titulo = (it.get("titulo") or "").strip()
             org = (it.get("orgao") or "").strip()
             data_pub = (it.get("data") or "").strip()
@@ -686,12 +839,9 @@ def send_email(items: list[dict], cfg: dict) -> None:
             resumo_ia = clean_summary((it.get("resumo_ia") or "").strip())
             snippet = extract_body_snippet(it.get("texto_bruto") or "", max_chars=320)
 
-
-            # 1) Título completo (apenas uma vez)
             if titulo:
                 text_lines.append(titulo)
 
-            # 2) Resumo (prioridade: IA -> editorial -> trecho)
             if resumo_ia:
                 text_lines.append(f"Resumo: {resumo_ia}")
             elif resumo_editorial:
@@ -700,8 +850,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
                 if snippet:
                     text_lines.append(f"Trecho: {snippet}")
 
-
-            # 3) Linha curta (sem "Órgão:" e sem "DOU:")
             org_short = shorten_orgao(org) if org else ""
             footer_parts = []
             if org_short:
@@ -709,7 +857,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
             if data_pub:
                 footer_parts.append(data_pub)
             if url:
-                footer_parts.append(f"ver no DOU ({url})")
+                footer_parts.append(f"Ver no DOU ({url})")
 
             if footer_parts:
                 text_lines.append(" · ".join(footer_parts))
@@ -721,17 +869,13 @@ def send_email(items: list[dict], cfg: dict) -> None:
     if org_filters:
         text_lines.append("Filtros por órgão: " + "; ".join(org_filters))
     if ai_enabled:
-        text_lines.append(
-            "Resumos gerados automaticamente por IA. Sempre confira o texto oficial no DOU."
-        )
+        text_lines.append("Resumos gerados automaticamente por IA. Sempre confira o texto oficial no DOU.")
 
     text_body = "\n".join(text_lines)
 
     # ----------------- HTML -----------------
     html_lines: list[str] = []
-    html_lines.append(
-        '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
-    )
+    html_lines.append('<meta http-equiv="Content-Type" content="text/html; charset=utf-8">')
     html_lines.append('<div style="font-family:Arial,Helvetica,sans-serif">')
 
     html_lines.append(
@@ -745,11 +889,80 @@ def send_email(items: list[dict], cfg: dict) -> None:
     )
 
     if not items:
-        html_lines.append(
-            "<p>Não foram encontradas publicações relevantes para os critérios atuais.</p>"
-        )
+        html_lines.append("<p>Não foram encontradas publicações relevantes para os critérios atuais.</p>")
     else:
-        for it in items:
+        for it in items_plain:
+
+            # ---------- bloco agrupado (HTML) ----------
+            if isinstance(it, dict) and it.get("_is_group"):
+                group_key = it.get("group_key") or "Publicações repetidas"
+                group_list = it.get("items") or []
+
+                org0 = (group_list[0].get("orgao") or "").strip() if group_list else ""
+                org_short = shorten_orgao(org0) if org0 else ""
+
+                nums = [_extract_num(x) for x in group_list]
+                ints = [v for v in (_num_to_int(n) for n in nums) if v is not None]
+                faixa = ""
+                if len(ints) == len(group_list) and ints:
+                    faixa = f" (nº {min(ints)} a {max(ints)})"
+
+                tipo = _guess_tipo(group_key)
+                header = f"Foram publicadas {len(group_list)} {tipo}{faixa}: {group_key}"
+                if org_short:
+                    header += f" · {org_short}"
+
+                html_lines.append("<p style='margin-bottom:12px;'>")
+                html_lines.append(f"<b>{_escape_html(header)}</b><br/>")
+                html_lines.append("<ul style='margin:6px 0 0 18px;padding:0;'>")
+
+                for g in group_list:
+                    num = _extract_num(g)
+                    data_pub = (g.get("data") or "").strip()
+                    url = (g.get("url") or "").strip()
+
+                    parts = []
+                    if num:
+                        parts.append(f"Nº {num}")
+                    else:
+                        parts.append((g.get("titulo") or "").strip() or "Sem título")
+                    if data_pub:
+                        parts.append(data_pub)
+
+                    resumo_editorial = (g.get("resumo_editorial") or "").strip()
+                    resumo_ia = clean_summary((g.get("resumo_ia") or "").strip())
+                    snippet = extract_body_snippet(g.get("texto_bruto") or "", max_chars=220)
+                    resumo = (resumo_ia or resumo_editorial or snippet).replace("\n", " ").strip()
+
+                    li_text = " · ".join(parts)
+                    
+                    # corta para 200 no HTML também (igual plain)
+                    if len(resumo) > 200:
+                        resumo = resumo[:197].rstrip() + "..."
+
+                    if url:
+                        html_lines.append(
+                            "<li style='margin:0 0 8px 0;'>"
+                            + f"{_escape_html(li_text)}"
+                            + " · "
+                            + f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>Ver no DOU</a>"
+                            + (f"<br/><span style='font-size:12px;color:#555;'><b>Resumo:</b> {_escape_html(resumo)}</span>" if resumo else "")
+                            + "</li>"
+                        )
+
+                    else:
+                        html_lines.append(
+                            "<li style='margin:0 0 8px 0;'>"
+                            + f"{_escape_html(li_text)}"
+                            + (f"<br/><span style='font-size:12px;color:#555;'><b>Resumo:</b> {_escape_html(resumo)}</span>" if resumo else "")
+                            + "</li>"
+                        )
+
+                html_lines.append("</ul>")
+                html_lines.append("</p>")
+                continue
+
+            # ---------- item normal (HTML) ----------
             titulo = (it.get("titulo") or "").strip()
             org = (it.get("orgao") or "").strip()
             data_pub = (it.get("data") or "").strip()
@@ -761,11 +974,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
             org_short = shorten_orgao(org) if org else ""
 
             html_lines.append("<p style='margin-bottom:12px;'>")
-
-            # 1) Título completo
             html_lines.append(f"<b>{_escape_html(titulo)}</b><br/>" if titulo else "")
 
-            # 2) Resumo (prioridade: editorial -> IA -> trecho)
             if resumo_ia:
                 html_lines.append(
                     "<span style='font-size:13px;color:#000;'>"
@@ -778,7 +988,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
                     f"<b>Resumo:</b> {_escape_html(resumo_editorial)}"
                     "</span><br/>"
                 )
-
             else:
                 if snippet:
                     html_lines.append(
@@ -787,7 +996,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
                         "</span><br/>"
                     )
 
-            # 3) Linha curta (sem rótulos)
             footer_parts = []
             if org_short:
                 footer_parts.append(_escape_html(org_short))
@@ -795,7 +1003,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
                 footer_parts.append(_escape_html(data_pub))
             if url:
                 footer_parts.append(
-                    f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>ver no DOU</a>"
+                    f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>Ver no DOU</a>"
                 )
 
             if footer_parts:
@@ -807,7 +1015,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
 
             html_lines.append("</p>")
 
-    # Rodapé com critérios de busca e filtros por órgão
     html_lines.append(
         "<p style='font-size:12px;color:#777;'>"
         "Critérios de busca: "
@@ -987,6 +1194,31 @@ def should_reject_url(url: str, cfg: dict) -> bool:
             return True
     return False
 
+def should_reject_title(title: str, cfg: dict) -> bool:
+    """
+    Rejeita resultados cujo TÍTULO contenha alguma substring listada em:
+    filters.reject_title_substrings (config.yml)
+
+    Comparação case-insensitive e sem espaços duplicados.
+    """
+    rejects = (cfg.get("filters") or {}).get("reject_title_substrings") or []
+    if not rejects:
+        return False
+
+    t = (title or "").strip()
+    if not t:
+        return False
+
+    t_norm = re.sub(r"\s+", " ", t).lower()
+
+    for s in rejects:
+        if not s:
+            continue
+        s_norm = re.sub(r"\s+", " ", str(s)).lower().strip()
+        if s_norm and s_norm in t_norm:
+            return True
+
+    return False
 
 def title_allowed(title: str, cfg: dict) -> bool:
     """
@@ -1034,7 +1266,7 @@ async def collect_links_from_listing(page, cfg: dict, broad: bool = True) -> lis
     Faz deduplicação e, em último caso, usa deep_collect_anchors como fallback.
     """
     links = {}
-    discards = {"menu_like": 0, "rejected_url": 0, "title_keyword": 0, "pattern_miss": 0}
+    discards = {"menu_like": 0, "rejected_url": 0, "rejected_title": 0, "title_keyword": 0, "pattern_miss": 0}
     accept_pats = compile_accept_patterns(cfg)
 
     async def add_candidate(href, text, reason="primary"):
@@ -1046,6 +1278,10 @@ async def collect_links_from_listing(page, cfg: dict, broad: bool = True) -> lis
             return
         if should_reject_url(url, cfg):
             discards["rejected_url"] += 1
+            return
+        # ✅ Blacklist de título (veto absoluto)
+        if should_reject_title(text, cfg):
+            discards["rejected_title"] += 1
             return
         if not title_allowed(text, cfg):
             discards["title_keyword"] += 1
@@ -1189,7 +1425,7 @@ def extract_clean_text(soup: BeautifulSoup, max_chars: int = 4000) -> str:
         return ""
 
     # 1) Container principal do texto do DOU
-    container = soup.select_one("div.texto-dou")
+    container = soup.select_one("div.texto-dou body") or soup.select_one("div.texto-dou")
     if not container:
         # fallback seguro
         container = soup.select_one("div#materia") or soup.body
@@ -1220,6 +1456,11 @@ def extract_clean_text(soup: BeautifulSoup, max_chars: int = 4000) -> str:
             "assinatura eletrônica",
             "verificação de autenticidade",
             "diário oficial da união",
+            "your ip",
+            "request id",
+            "status code",
+            "edge location",
+            "pesquisa aproximada",
         ]
         if any(n in low for n in noise_snippets):
             continue
