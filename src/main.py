@@ -569,8 +569,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
     """
     Monta e envia o e-mail de informe com os atos encontrados.
 
-    - Plain text: mantém formato normal + agrupamento automático (>=4) com resumo por item do grupo.
-    - HTML: mantém formato normal + agrupamento automático (>=4) com resumo por item do grupo.
+    - Plain text: mantém formato normal + agrupamento automático (>=3) com resumo por item do grupo.
+    - HTML: mantém formato normal + agrupamento automático (>=3) com resumo por item do grupo.
     """
 
     def _extract_emails(element):
@@ -752,7 +752,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
     ai_enabled = bool((cfg.get("ai") or {}).get("summaries", {}).get("enabled"))
 
     # aplica agrupamento (usado no plain text e no HTML)
-    items_plain = group_items_for_plain_text_inplace(items, min_reps=4)
+    items_plain = group_items_for_plain_text_inplace(items, min_reps=3)
 
     # ----------------- TEXTO SIMPLES -----------------
     text_lines: list[str] = []
