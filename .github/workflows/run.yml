@@ -14,7 +14,7 @@ on:
   # Execução automática agendada (horário em UTC)
   schedule:
     # 07:50 BRT (UTC-3) = 10:50 UTC  (principal)
-    - cron: '50 10 * * *'
+    - cron: '55 10 * * *'
 
     # 08:30 BRT (UTC-3) = 11:30 UTC  (backup)
     - cron: '30 11 * * *'
