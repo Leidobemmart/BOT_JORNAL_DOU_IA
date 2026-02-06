@@ -13,8 +13,11 @@ name: Run DOU Bot
 on:
   # Execução automática agendada (horário em UTC)
   schedule:
-    # 08:15 BRT (UTC-3) = 11:15 UTC
-    - cron: '15 11 * * *'
+    # 07:50 BRT (UTC-3) = 10:50 UTC
+    - cron: '50 10 * * *'
+
+    # 08:30 BRT (UTC-3) = 11:30 UTC
+    - cron: '30 11 * * *'
 
   # Disparo manual via interface do GitHub Actions
   workflow_dispatch:
@@ -48,6 +51,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'   # 👈 AQUI está o pulo do gato
 
       # ------------------------------------------------------------------
       # 3) Instalação das dependências do projeto
