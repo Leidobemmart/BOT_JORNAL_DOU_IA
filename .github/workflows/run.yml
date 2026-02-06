@@ -13,10 +13,10 @@ name: Run DOU Bot
 on:
   # Execução automática agendada (horário em UTC)
   schedule:
-    # 07:50 BRT (UTC-3) = 10:50 UTC
+    # 07:50 BRT (UTC-3) = 10:50 UTC  (principal)
     - cron: '50 10 * * *'
 
-    # 08:30 BRT (UTC-3) = 11:30 UTC
+    # 08:30 BRT (UTC-3) = 11:30 UTC  (backup)
     - cron: '30 11 * * *'
 
   # Disparo manual via interface do GitHub Actions
@@ -45,13 +45,13 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------------
-      # 2) Configuração do Python 3.11 (padrão do robô)
+      # 2) Configuração do Python 3.11 + cache do pip
       # ------------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'   # 👈 AQUI está o pulo do gato
+          cache: 'pip'
 
       # ------------------------------------------------------------------
       # 3) Instalação das dependências do projeto
@@ -62,10 +62,22 @@ jobs:
           pip install -r requirements.txt
 
       # ------------------------------------------------------------------
+      # 3.4) Cache do Playwright (browsers) para reduzir tempo de execução
+      # ------------------------------------------------------------------
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # ------------------------------------------------------------------
       # 3.5) Instalação dos browsers do Playwright (Chromium)
       #
-      # Sem este passo, o erro "Executable doesn't exist" aparece,
-      # porque só a biblioteca Python é instalada, mas não o navegador.
+      # Mantemos este passo porque:
+      # - na 1ª execução ele baixa tudo
+      # - nas seguintes ele valida/baixa só o que faltar (com cache acima)
       # ------------------------------------------------------------------
       - name: Install Playwright browsers
         run: |
@@ -101,44 +113,35 @@ jobs:
           if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
             echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> $GITHUB_ENV
           fi
-      
-      - name: Check HF token presence
-        run: |
-          python - << 'EOF'
-          import os
-          print("HF_TOKEN presente?", bool(os.getenv("HF_TOKEN")))
-          EOF
-
-      - name: Check Gemini token presence
-        run: |
-          python - << 'EOF'
-          import os
-          print("GEMINI_API_KEY presente?", bool(os.getenv("GEMINI_API_KEY")))
-          EOF
-
-          # Overrides apenas quando disparado manualmente
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # FORCE_TEST_EMAIL: força envio de e-mail de teste mesmo sem resultados
-            if [ "${{ github.event.inputs.test_email }}" = "true" ]; then
-              echo "FORCE_TEST_EMAIL=true" >> $GITHUB_ENV
-            fi
-
-            # PERIOD_OVERRIDE a partir do input 'period', se informado
-            if [ -n "${{ github.event.inputs.period }}" ]; then
-              echo "PERIOD_OVERRIDE=${{ github.event.inputs.period }}" >> $GITHUB_ENV
-            fi
-          fi
         shell: bash
 
       # ------------------------------------------------------------------
-      # 4.5) (OPCIONAL) Verificar se o token da IA chegou corretamente
+      # 4.5) Verificação rápida: tokens chegaram?
       # ------------------------------------------------------------------
-      - name: Check HF token presence
+      - name: Check tokens presence
         run: |
           python - << 'EOF'
           import os
           print("HF_TOKEN presente?", bool(os.getenv("HF_TOKEN")))
+          print("GEMINI_API_KEY presente?", bool(os.getenv("GEMINI_API_KEY")))
           EOF
+
+      # ------------------------------------------------------------------
+      # 4.6) Overrides apenas quando disparado manualmente
+      # ------------------------------------------------------------------
+      - name: Apply manual overrides (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          # FORCE_TEST_EMAIL: força envio de e-mail de teste mesmo sem resultados
+          if [ "${{ github.event.inputs.test_email }}" = "true" ]; then
+            echo "FORCE_TEST_EMAIL=true" >> $GITHUB_ENV
+          fi
+
+          # PERIOD_OVERRIDE a partir do input 'period', se informado
+          if [ -n "${{ github.event.inputs.period }}" ]; then
+            echo "PERIOD_OVERRIDE=${{ github.event.inputs.period }}" >> $GITHUB_ENV
+          fi
+        shell: bash
 
       # ------------------------------------------------------------------
       # 5) Execução do robô (script principal main.py em src/)
@@ -149,10 +152,6 @@ jobs:
 
       # ------------------------------------------------------------------
       # 6) Upload de artefatos de debug (se existirem)
-      #
-      # O main.py salva HTMLs de listagem em artifacts/ quando
-      # a busca via URL direta não encontra resultados. Aqui
-      # fazemos upload desses arquivos para inspeção posterior.
       # ------------------------------------------------------------------
       - name: Upload debug artifacts (listing HTML), if any
         uses: actions/upload-artifact@v4
@@ -163,9 +162,6 @@ jobs:
 
       # ------------------------------------------------------------------
       # 7) Commit do arquivo de estado (state/seen.json)
-      #
-      # Se o main.py marcou novas publicações como "vistas",
-      # o seen.json será alterado. Se houver alterações, comita e dá push.
       # ------------------------------------------------------------------
       - name: Commit state (seen.json)
         run: |
