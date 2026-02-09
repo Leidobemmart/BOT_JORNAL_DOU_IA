@@ -324,7 +324,6 @@ def load_config() -> dict:
 
 
 def load_seen() -> set:
-    perf.mark("estado carregado (seen.json)")
 
     """
     Carrega a lista de publicações já enviadas (state/seen.json)
@@ -1810,7 +1809,10 @@ async def run() -> None:
     if not isinstance(cfg, dict):
         raise RuntimeError("config.yml invalido ou vazio. Garanta as chaves 'search' e 'email'.")
 
+    perf.mark("antes de load_seen()")
     seen = load_seen()
+    perf.mark("estado carregado (seen.json)")
+    
     enrich = bool(cfg.get("search", {}).get("enrich_listing", True))
     phrases = cfg.get("search", {}).get("phrases", [])
 
