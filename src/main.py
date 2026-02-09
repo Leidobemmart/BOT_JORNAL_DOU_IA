@@ -324,6 +324,8 @@ def load_config() -> dict:
 
 
 def load_seen() -> set:
+    perf.mark("estado carregado (seen.json)")
+
     """
     Carrega a lista de publicações já enviadas (state/seen.json)
     e devolve um set() para facilitar checagens de duplicidade.
@@ -1783,6 +1785,9 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 async def run() -> None:
+    perf = Perf("DOU")
+    perf.mark("run() iniciou")
+
     """
     Pipeline principal do robô:
     - Carrega config.yml e o seen.json
@@ -1796,6 +1801,8 @@ async def run() -> None:
     - Ordena, envia e-mail e atualiza seen.json
     """
     cfg = load_config()
+    perf.mark("config carregada (load_config)")
+    
     if not isinstance(cfg, dict):
         raise RuntimeError("config.yml invalido ou vazio. Garanta as chaves 'search' e 'email'.")
 
@@ -1803,8 +1810,15 @@ async def run() -> None:
     enrich = bool(cfg.get("search", {}).get("enrich_listing", True))
     phrases = cfg.get("search", {}).get("phrases", [])
 
+    perf.mark("antes de async_playwright()")
     async with async_playwright() as p:
+        perf.mark("async_playwright() OK (contexto aberto)")
+        
+        perf.mark("antes de chromium.launch()")
         browser = await p.chromium.launch(args=["--no-sandbox"])
+        perf.mark("chromium.launch() OK")
+
+        perf.mark("antes de new_context()")
         context = await browser.new_context(
             locale="pt-BR",
             user_agent=(
@@ -1812,7 +1826,11 @@ async def run() -> None:
                 "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
             ),
         )
+        perf.mark("new_context() OK")
+
+        perf.mark("antes de new_page()")
         page = await context.new_page()
+        perf.mark("new_page() OK")
 
         listing = await query_dou(page, cfg, phrases)
         if not listing:
