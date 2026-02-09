@@ -1860,24 +1860,24 @@ async def run() -> None:
             # Pequena pausa para ser gentil com a API
             time.sleep(1)
 
-if relevant:
-    tm.mark("antes de send_email()")
-    send_email(relevant, cfg)
-    tm.mark("depois de send_email()")
-
-    for r in relevant:
-        url_key, id_key = build_seen_keys(r["url"])
-        seen.add(url_key)
-        if id_key:
-            seen.add(id_key)
-
-    tm.mark("antes de save_seen()")
-    save_seen(seen)
-    tm.mark("depois de save_seen()")
-
-    print(f"{len(relevant)} item(ns) novos registrados no seen.json.")
-else:
-    print("Sem novidades para enviar.")
+            if relevant:
+                tm.mark("antes de send_email()")
+                send_email(relevant, cfg)
+                tm.mark("depois de send_email()")
+            
+                for r in relevant:
+                    url_key, id_key = build_seen_keys(r["url"])
+                    seen.add(url_key)
+                    if id_key:
+                        seen.add(id_key)
+            
+                tm.mark("antes de save_seen()")
+                save_seen(seen)
+                tm.mark("depois de save_seen()")
+            
+                print(f"{len(relevant)} item(ns) novos registrados no seen.json.")
+            else:
+                print("Sem novidades para enviar.")
 
 
 # ---------------------------------------------------------------------------
