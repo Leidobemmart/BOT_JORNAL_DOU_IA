@@ -1358,7 +1358,9 @@ async def resolve_to_materia(page, url: str) -> str:
         return url
 
     try:
+        perf.mark("antes do page.goto(listing)")
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        perf.mark("depois do page.goto(listing)")
     except Exception:
         return url
 
@@ -1384,7 +1386,10 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
     seen_urls = set()
     page_idx = 0
     while page_idx < max_pages:
+        await page.goto(direct_url, wait_until="networkidle", timeout=45000)
         await wait_results(page, timeout_ms=20000)
+        items = await collect_paginated_results(page, cfg, broad=True, max_pages=max_pages)
+
         items = await collect_links_from_listing(page, cfg, broad=broad)
         if not items:
             break
@@ -1838,7 +1843,10 @@ async def run() -> None:
         page = await context.new_page()
         perf.mark("new_page() OK")
 
+        perf.mark("antes de query_dou() (busca/listagem)")
         listing = await query_dou(page, cfg, phrases)
+        perf.mark(f"depois de query_dou() (itens={len(listing) if listing else 0})")
+
         if not listing:
             print("Nenhuma publicação encontrada para os critérios configurados.")
             if str(os.getenv("FORCE_TEST_EMAIL", "")).lower() in {"1", "true", "yes"}:
