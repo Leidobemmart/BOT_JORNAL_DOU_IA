@@ -36,6 +36,26 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+import time
+
+def _ts():
+    return time.strftime("%H:%M:%S")
+
+class Perf:
+    def __init__(self, label="PERF"):
+        self.label = label
+        self.t0 = time.perf_counter()
+        self.last = self.t0
+
+    def mark(self, name: str):
+        now = time.perf_counter()
+        dt = now - self.last
+        total = now - self.t0
+        print(f"[{self.label}] {_ts()} +{dt:7.2f}s | total {total:7.2f}s | {name}", flush=True)
+        self.last = now
+
+def log_step(msg: str):
+    print(f"[STEP] {_ts()} {msg}", flush=True)
 
 # ---------------------------------------------------------------------------
 # Caminhos básicos do projeto / logging
