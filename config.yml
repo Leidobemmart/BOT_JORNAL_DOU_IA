@@ -150,16 +150,15 @@ email:
   # Destinatários principais (TO)
   to:
     - "diogo.neis@martinelliaud.com.br"
-    - "karine.batista@martinelliaud.com.br"
-    - "gustavo@martinelliaud.com.br"
-    - "cassiano@martinelliaud.com.br"
-    - "ueliton.sinhoreto@martinelliaud.com.br"
-    - "hiorhana@martinelliaud.com.br"
-    - "taimara.carolina@martinelliaud.com.br"
-    - "julia.simas@martinelliaud.com.br"
-    - "larissa.bernardo@martinelliaud.com.br"
-    - "flavio@martinelliaud.com.br"
-    - "elaine.peters@martinelliaud.com.br"
+    #- "karine.batista@martinelliaud.com.br"
+    #- "gustavo@martinelliaud.com.br"
+    #- "cassiano@martinelliaud.com.br"
+    #- "ueliton.sinhoreto@martinelliaud.com.br"
+    #- "hiorhana@martinelliaud.com.br"
+    #- "julia.simas@martinelliaud.com.br"
+    #- "larissa.bernardo@martinelliaud.com.br"
+    #- "flavio@martinelliaud.com.br"
+    #- "elaine.peters@martinelliaud.com.br"
 
   # Cópia (CC) - pode ser sobrescrito via MAIL_CC
   cc:
