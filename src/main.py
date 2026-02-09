@@ -652,6 +652,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
         t = re.sub(r"\bDE\s+\d{4}\b", "", t)
 
         # limpa pontuação/duplicidade de espaços
+        # (após remover "Nº ...", normalmente sobra vírgula solta)
+        t = re.sub(r"\s*,\s*", " ", t)
         t = re.sub(r"[–—\-]+", " ", t)
         t = re.sub(r"\s+", " ", t).strip()
 
@@ -1750,7 +1752,9 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
             direct_url = build_direct_query_url(phrase, period, sec)
             print(f"[DEBUG] Direct URL: {direct_url}")
             try:
-                await page.goto(direct_url, wait_until="networkidle", timeout=45000)
+                # "networkidle" costuma travar em páginas do IN.gov (recursos long-poll / trackers).
+                # Para evitar ficar preso aqui por dezenas de segundos, usamos domcontentloaded.
+                await page.goto(direct_url, wait_until="domcontentloaded", timeout=30000)
             except Exception as e:
                 print(f"[WARN] Falha ao carregar URL direta: {e}")
                 continue
@@ -1852,7 +1856,9 @@ async def run() -> None:
             return
 
         relevant = []
-        for it in listing:
+        total_items = len(listing)
+        for idx, it in enumerate(listing, start=1):
+            t_item = time.perf_counter()
             if enrich:
                 v = await enrich_listing_item(page, it)
             else:
@@ -1874,6 +1880,13 @@ async def run() -> None:
                 continue
 
             relevant.append(v)
+
+            # log de progresso / gargalos (ajuda a descobrir onde "travou")
+            dt_item = time.perf_counter() - t_item
+            if dt_item >= 15:
+                print(f"[PERF] item {idx}/{total_items} levou {dt_item:.1f}s | {v.get('titulo','')[:80]}", flush=True)
+            if idx == 1 or idx % 10 == 0:
+                perf.mark(f"processados {idx}/{total_items} itens da listagem")
 
         await context.close()
         await browser.close()
