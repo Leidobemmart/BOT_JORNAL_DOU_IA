@@ -1569,12 +1569,26 @@ def build_seen_keys(url: str):
     id_key = f"id:{mid}" if mid else None
     return url_key, id_key
 
+async def goto_with_retry(page, url: str, *, attempts: int = 3, timeout_ms: int = 25000) -> bool:
+    """
+    Tenta navegar para uma URL com retries curtos.
+    Retorna True se carregou, False se falhou em todas as tentativas.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            return True
+        except Exception as e:
+            if attempt == attempts:
+                print(f"[WARN] goto falhou ({attempts}x): {e}", flush=True)
+                return False
+            # backoff simples
+            await page.wait_for_timeout(800 * attempt)
 
 # ---------------------------------------------------------------------------
 # Query principal (busca no DOU)
 # ---------------------------------------------------------------------------
 
-@retry(wait=wait_fixed(2), stop=stop_after_attempt(3))
 async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
     """
     Executa a busca principal no DOU combinando frases e seções.
@@ -1633,12 +1647,12 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
     for phrase in phrases:
         for sec in sections:
             direct_url = build_direct_query_url(phrase, period, sec)
-            print(f"[DEBUG] Direct URL: {direct_url}")
-            try:
-                await page.goto(direct_url, wait_until="networkidle", timeout=45000)
-            except Exception as e:
-                print(f"[WARN] Falha ao carregar URL direta: {e}")
+            print(f"[DEBUG] Direct URL: {direct_url}", flush=True)
+
+            ok = await goto_with_retry(page, direct_url, attempts=3, timeout_ms=25000)
+            if not ok:
                 continue
+
 
             await wait_results(page, timeout_ms=20000)
             items = await collect_paginated_results(page, cfg, broad=True, max_pages=max_pages)
@@ -1665,6 +1679,14 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
     return listing
 
 
+async def _route_filter(route):
+    rtype = route.request.resource_type
+    if rtype in ("image", "media", "font", "stylesheet"):
+        await route.abort()
+    else:
+        await route.continue_()
+
+await page.route("**/*", _route_filter)
 
 
 # ---------------------------------------------------------------------------
