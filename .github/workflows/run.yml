@@ -148,7 +148,7 @@ jobs:
       # ------------------------------------------------------------------
       - name: Run DOU bot
         run: |
-          python src/main.py
+          python -u src/main.py
 
       # ------------------------------------------------------------------
       # 6) Upload de artefatos de debug (se existirem)
