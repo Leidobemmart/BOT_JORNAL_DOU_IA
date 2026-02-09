@@ -1217,7 +1217,7 @@ async def collect_links_from_listing(page, cfg: dict, broad: bool = True) -> lis
             await add_candidate(href, text, reason="shadow")
 
     items = [{"url": u, "titulo": t} for u, t in links.items()]
-    print(f"[DEBUG] collect_links_from_listing -> {len(items)} link(s). Discards: {discards}")
+    print(f"[DEBUG] collect_links_from_listing -> {len(items)} link(s). Discards: {discards}", flush=True)
     return items
 
 
@@ -1274,7 +1274,7 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
                 seen_urls.add(u)
                 all_items.append(it)
                 added += 1
-        print(f"[DEBUG] Página {page_idx+1}: {len(items)} itens, {added} novos (total acumulado: {len(all_items)}).")
+        print(f"[DEBUG] Página {page_idx+1}: {len(items)} itens, {added} novos (total acumulado: {len(all_items)}).", flush=True)
 
         # Tenta avançar para a próxima página
         next_clicked = False
@@ -1294,7 +1294,7 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
                 await page.wait_for_timeout(1000)
                 more = await collect_links_from_listing(page, cfg, broad=False)
-                print(f"[DEBUG] Fallback scroll infinito: {len(more) if more else 0} novos itens.")
+                print(f"[DEBUG] Fallback scroll infinito: {len(more) if more else 0} novos itens.", flush=True)
                 if not more:
                     break
                 for it in more:
@@ -1569,10 +1569,17 @@ def build_seen_keys(url: str):
     id_key = f"id:{mid}" if mid else None
     return url_key, id_key
 
+
+# ---------------------------------------------------------------------------
+# Query principal (busca no DOU)
+# ---------------------------------------------------------------------------
+
+@retry(wait=wait_fixed(2), stop=stop_after_attempt(3))
 async def goto_with_retry(page, url: str, *, attempts: int = 3, timeout_ms: int = 25000) -> bool:
-    """
-    Tenta navegar para uma URL com retries curtos.
-    Retorna True se carregou, False se falhou em todas as tentativas.
+    """Tenta navegar para uma URL com retries curtos.
+
+    - Usa wait_until='domcontentloaded' (mais previsível que 'networkidle' no portal do DOU).
+    - Retorna True se carregou, False se falhou em todas as tentativas.
     """
     for attempt in range(1, attempts + 1):
         try:
@@ -1582,12 +1589,8 @@ async def goto_with_retry(page, url: str, *, attempts: int = 3, timeout_ms: int 
             if attempt == attempts:
                 print(f"[WARN] goto falhou ({attempts}x): {e}", flush=True)
                 return False
-            # backoff simples
             await page.wait_for_timeout(800 * attempt)
 
-# ---------------------------------------------------------------------------
-# Query principal (busca no DOU)
-# ---------------------------------------------------------------------------
 
 async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
     """
@@ -1648,12 +1651,9 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
         for sec in sections:
             direct_url = build_direct_query_url(phrase, period, sec)
             print(f"[DEBUG] Direct URL: {direct_url}", flush=True)
-
             ok = await goto_with_retry(page, direct_url, attempts=3, timeout_ms=25000)
             if not ok:
                 continue
-
-
             await wait_results(page, timeout_ms=20000)
             items = await collect_paginated_results(page, cfg, broad=True, max_pages=max_pages)
 
@@ -1667,26 +1667,18 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
                     fname = artifacts_dir / f"listing_direct_{sec}_{safe_phrase}.html"
                     with open(fname, "w", encoding="utf-8") as f:
                         f.write(content)
-                    print(f"[DEBUG] Nenhum item via URL direta; HTML salvo em {fname}")
+                    print(f"[DEBUG] Nenhum item via URL direta; HTML salvo em {fname}", flush=True)
                 except Exception as e:
-                    print(f"[WARN] Falha ao salvar HTML de debug: {e}")
+                    print(f"[WARN] Falha ao salvar HTML de debug: {e}", flush=True)
             else:
                 for it in items:
                     all_results.add((it["url"], it.get("titulo") or ""))
 
     listing = [{"url": u, "titulo": t} for (u, t) in all_results]
-    print(f"[DEBUG] query_dou -> {len(listing)} itens únicos (via URL direta).")
+    print(f"[DEBUG] query_dou -> {len(listing)} itens únicos (via URL direta).", flush=True)
     return listing
 
 
-async def _route_filter(route):
-    rtype = route.request.resource_type
-    if rtype in ("image", "media", "font", "stylesheet"):
-        await route.abort()
-    else:
-        await route.continue_()
-
-await page.route("**/*", _route_filter)
 
 
 # ---------------------------------------------------------------------------
@@ -1710,7 +1702,7 @@ class TimeMarks:
         total = now - self.t0
         self.last = now
         ts = datetime.now(timezone(timedelta(hours=-3))).strftime("%H:%M:%S")
-        print(f"[{self.label}] {ts} + {delta:6.2f}s | total {total:7.2f}s | {msg}")
+        print(f"[{self.label}] {ts} + {delta:6.2f}s | total {total:7.2f}s | {msg}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1760,6 +1752,15 @@ async def run() -> None:
         tm.mark('new_context() OK')
         tm.mark('antes de new_page()')
         page = await context.new_page()
+        # Otimização: bloquear recursos pesados (imagens/fontes/css) para acelerar a listagem
+        async def _route_filter(route):
+            rtype = route.request.resource_type
+            if rtype in ("image", "media", "font", "stylesheet"):
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await page.route("**/*", _route_filter)
         tm.mark('new_page() OK')
 
         tm.mark('antes de query_dou() (busca/listagem)')
@@ -1818,13 +1819,13 @@ async def run() -> None:
         today_br = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y")
         before = len(relevant)
         relevant = [r for r in relevant if (r.get("data") or "").strip() == today_br]
-        print(f"[DEBUG] Filtro edição do dia {today_br}: {before} -> {len(relevant)} item(ns).")
+        print(f"[DEBUG] Filtro edição do dia {today_br}: {before} -> {len(relevant)} item(ns).", flush=True)
 
     # ---- filtro opcional por órgão ----
     if cfg.get("filters", {}).get("orgao_keywords"):
         antes = len(relevant)
         relevant = [r for r in relevant if orgao_allowed(r.get("orgao"), cfg)]
-        print(f"[DEBUG] Filtro por órgão: {antes} -> {len(relevant)} item(ns) após aplicar orgao_keywords")
+        print(f"[DEBUG] Filtro por órgão: {antes} -> {len(relevant)} item(ns) após aplicar orgao_keywords", flush=True)
 
     # ---- ordenar por data desc (e por título para estabilizar) ----
     def _sort_key(r):
@@ -1859,49 +1860,30 @@ async def run() -> None:
             # Pequena pausa para ser gentil com a API
             time.sleep(1)
 
-    if relevant:
-        tm.mark("antes de send_email()")
-        send_email(relevant, cfg)
-        tm.mark("depois de send_email()")
+if relevant:
+    tm.mark("antes de send_email()")
+    send_email(relevant, cfg)
+    tm.mark("depois de send_email()")
 
-        for r in relevant:
-            url_key, id_key = build_seen_keys(r["url"])
-            seen.add(url_key)
-            if id_key:
-                seen.add(id_key)
+    for r in relevant:
+        url_key, id_key = build_seen_keys(r["url"])
+        seen.add(url_key)
+        if id_key:
+            seen.add(id_key)
 
-        tm.mark("antes de save_seen()")
-        save_seen(seen)
-        tm.mark("depois de save_seen()")
+    tm.mark("antes de save_seen()")
+    save_seen(seen)
+    tm.mark("depois de save_seen()")
 
-        print(f"{len(relevant)} item(ns) novos registrados no seen.json.")
-    else:
-        print("Sem novidades para enviar.")
-
-
-    # ---------------------------------------------------------------------------
-    # Ponto de entrada
-    # ---------------------------------------------------------------------------
+    print(f"{len(relevant)} item(ns) novos registrados no seen.json.")
+else:
+    print("Sem novidades para enviar.")
 
 
-    if relevant:
-        tm.mark("antes de send_email()")
-        send_email(relevant, cfg)
-        tm.mark("depois de send_email()")
+# ---------------------------------------------------------------------------
+# Ponto de entrada
+# ---------------------------------------------------------------------------
 
-        for r in relevant:
-            url_key, id_key = build_seen_keys(r["url"])
-            seen.add(url_key)
-            if id_key:
-                seen.add(id_key)
-
-        tm.mark("antes de save_seen()")
-        save_seen(seen)
-        tm.mark("depois de save_seen()")
-
-        print(f"{len(relevant)} item(ns) novos registrados no seen.json.")
-    else:
-        print("Sem novidades para enviar.")
 if __name__ == "__main__":
     try:
         asyncio.run(run())
