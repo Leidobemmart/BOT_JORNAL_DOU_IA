@@ -844,6 +844,11 @@ def send_email(items: list[dict], cfg: dict) -> None:
     if ai_enabled:
         text_lines.append("Resumos gerados automaticamente por IA. Sempre confira o texto oficial no DOU.")
 
+    # ✅ RODAPÉ (aqui)
+    text_lines.append("")
+    text_lines.append("Sugestões de melhoria, inclusão de termos ou ajustes nos critérios de busca:")
+    text_lines.append("entre em contato com Diogo Neis (diogo.neis@martinelliaud.com.br).")
+
     text_body = "\n".join(text_lines)
 
     # ----------------- HTML (mantém como estava) -----------------
@@ -937,6 +942,16 @@ def send_email(items: list[dict], cfg: dict) -> None:
             "Sempre confira o texto oficial no DOU."
             "</p>"
         )
+
+    # ✅ RODAPÉ (aqui)
+    html_lines.append(
+        "<hr style='border:0;border-top:1px solid #ddd;margin:16px 0;'>"
+        "<p style='font-size:12px;color:#666;margin:0;'>"
+        "<b>Sugestões e melhorias:</b> inclusão de termos ou ajustes nos critérios de busca — "
+        "entre em contato com <b>Diogo Neis</b> "
+        "(<a href='mailto:diogo.neis@martinelliaud.com.br'>diogo.neis@martinelliaud.com.br</a>)."
+        "</p>"
+    )
 
     html_lines.append("</div>")
     html_body = "\n".join(html_lines)
