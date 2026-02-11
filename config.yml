@@ -152,6 +152,8 @@ email:
     - "diogo.neis@martinelliaud.com.br"
     - "karine.batista@martinelliaud.com.br"
     - "gustavo@martinelliaud.com.br"
+    - "isabel@martinelliaud.com.br"
+    - "rodrigo@martinelliaud.com.br"
     - "cassiano@martinelliaud.com.br"
     - "ueliton.sinhoreto@martinelliaud.com.br"
     - "hiorhana@martinelliaud.com.br"
@@ -160,6 +162,17 @@ email:
     - "larissa.bernardo@martinelliaud.com.br"
     - "flavio@martinelliaud.com.br"
     - "elaine.peters@martinelliaud.com.br"
+    - "amanda.holz@martinelliaud.com.br"
+    - "andre.rosa@martinelliaud.com.br"
+    - "taciano@martinelliaud.com.br"
+    - "camila.silva@martinelliaud.com.br"
+    - "maria.gil@martinelliaud.com.br"
+    - "joseane.pereira@martinelliaud.com.br"
+    - "laiz.borba@martinelliaud.com.br"
+    - "evelin.nilsen@martinelliaud.com.br"
+    - "ronaldo.varela@martinelliaud.com.br"
+    - "kallita@martinelliaud.com.br"
+    - "maria.fronza@martinelliaud.com.br"
 
   # Cópia (CC) - pode ser sobrescrito via MAIL_CC
   cc:
