@@ -568,9 +568,8 @@ def _escape_html(t: str) -> str:
 def send_email(items: list[dict], cfg: dict) -> None:
     """
     Monta e envia o e-mail de informe com os atos encontrados.
-
-    - Plain text: mantém formato normal + agrupamento automático (>=3) com resumo por item do grupo.
-    - HTML: mantém formato normal + agrupamento automático (>=3) com resumo por item do grupo.
+    - Plain text: aplica agrupamento automático quando count >= 4
+    - HTML: mantém formato normal (você pode pedir depois para agrupar também no HTML)
     """
 
     def _extract_emails(element):
@@ -584,16 +583,11 @@ def send_email(items: list[dict], cfg: dict) -> None:
         return []
 
     def clean_summary(resumo: str | None) -> str:
-        """
-        Limpa resumos ruins vindos da IA.
-        Se o resumo for inútil, devolve string vazia (e ele não aparece no e-mail).
-        """
         if not resumo:
             return ""
         r = resumo.strip()
         if not r:
             return ""
-
         low = r.lower()
         if "acesse o script" in low:
             return ""
@@ -605,47 +599,47 @@ def send_email(items: list[dict], cfg: dict) -> None:
             return ""
         return r
 
-    # ----------------- Agrupamento (auto, sem config) -----------------
+    # ----------------- Agrupamento (plain text) -----------------
 
     def _norm_key(s: str) -> str:
-        # IMPORTANTE: unidecode primeiro, depois upper, para "Nº" virar "NO"
-        s = unidecode(s or "").upper()
+        s = (s or "").upper()
+        s = unidecode(s)
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
     def build_group_key(title: str) -> str:
         """
-        Gera uma chave de agrupamento automática a partir do título.
-        Remove Nº/numeração e datas, sobrando um 'prefixo estável'.
+        Chave automática a partir do título:
+        remove Nº/numeração e datas longas, sobrando um prefixo estável.
         """
         t = _norm_key(title)
 
-        # remove "Nº 9.853", "N° 236", "No 1.688", "N. 57" etc.
-        t = re.sub(r"\bN(?:(?:DEG)|[ºO°]|\s*O)?\.?\s*[\d\.\-\/]+", "", t)
+        # remove "Nº 9.853", "N 236", "n° 1.688", etc.
+        t = re.sub(r"\bN[ºO\.\s]*\s*[\d\.\-\/]+", "", t)
 
-        # remove datas longas tipo "DE 30 DE JANEIRO DE 2026" / "DE 11 DE DEZEMBRO DE 2025"
+        # remove "DE 30 DE JANEIRO DE 2026" / "DE 11 DE DEZEMBRO DE 2025"
         t = re.sub(r"\bDE\s+\d{1,2}\s+DE\s+[A-Z]+(?:\s+DE\s+\d{4})?\b", "", t)
 
-        # remove "DE 2026" solto no fim
+        # remove "DE 2026" solto
         t = re.sub(r"\bDE\s+\d{4}\b", "", t)
 
-        # limpa pontuação/duplicidade de espaços
         t = re.sub(r"[–—\-]+", " ", t)
         t = re.sub(r"\s+", " ", t).strip()
 
-        # se ficar pequeno demais, não agrupa
         return t if len(t) >= 10 else ""
 
     def _extract_num(it: dict) -> str:
+        # se um dia você passar "numero" já estruturado, ele terá prioridade
         num = (it.get("numero") or "").strip()
         if num:
             return num
 
         t = (it.get("titulo") or "")
-        m = re.search(r"\bN(?:(?:DEG)|[ºo°]|\s*o)?\.?\s*([\d\.]+(?:/\d{4})?)", t, re.I)
+        m = re.search(r"\bN[ºo\.]?\s*([\d\.]+(?:/\d{4})?)", t, re.I)
         return m.group(1).strip() if m else ""
 
     def _num_to_int(num: str):
+        # só converte números simples (ex.: "9.853" -> 9853). Se for "123/2026", ignora.
         if not num or "/" in num:
             return None
         digits = re.sub(r"\D", "", num)
@@ -660,7 +654,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
             "RESOLUCAO",
             "DESPACHO",
             "ATO DECLARATORIO",
-            "ATO DECLARATORIO EXECUTIVO",
             "SOLUCAO DE CONSULTA",
         ]:
             if group_key.startswith(tipo):
@@ -701,6 +694,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
                     return (n is None, n or 0, (x.get("titulo") or ""))
 
                 group_list.sort(key=_sortk)
+
                 out.append({"_is_group": True, "group_key": key, "items": group_list})
             else:
                 out.append(it)
@@ -751,8 +745,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
 
     ai_enabled = bool((cfg.get("ai") or {}).get("summaries", {}).get("enabled"))
 
-    # aplica agrupamento (usado no plain text e no HTML)
-    items_plain = group_items_for_plain_text_inplace(items, min_reps=3)
+    # aplica agrupamento SOMENTE no plain text
+    items_plain = group_items_for_plain_text_inplace(items, min_reps=4)
 
     # ----------------- TEXTO SIMPLES -----------------
     text_lines: list[str] = []
@@ -766,7 +760,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
         for it in items_plain:
 
             # --- bloco agrupado (plain text) ---
-            if isinstance(it, dict) and it.get("_is_group"):
+            if it.get("_is_group"):
                 group_key = it.get("group_key") or "Publicações repetidas"
                 group_list = it.get("items") or []
 
@@ -787,7 +781,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
                     header += f" · {org_short}"
 
                 text_lines.append(header)
-                text_lines.append("")
 
                 for g in group_list:
                     num = _extract_num(g)
@@ -799,38 +792,18 @@ def send_email(items: list[dict], cfg: dict) -> None:
                         parts.append(f"Nº {num}")
                     else:
                         parts.append((g.get("titulo") or "").strip() or "Sem título")
+
                     if data_pub:
                         parts.append(data_pub)
+                    if url:
+                        parts.append(url)
 
-                    text_lines.append("  " + " · ".join(parts))
+                    text_lines.append("- " + " · ".join(parts))
 
-                    # resumo abaixo (IA -> editorial -> trecho)
-                    resumo_editorial = (g.get("resumo_editorial") or "").strip()
-                    resumo_ia = clean_summary((g.get("resumo_ia") or "").strip())
-                    snippet = extract_body_snippet(g.get("texto_bruto") or "", max_chars=220)
-
-                    resumo = resumo_ia or resumo_editorial or snippet
-                    resumo = (resumo or "").replace("\n", " ").strip()
-                    
-                    # mantém 200 caracteres no agrupamento
-                    if len(resumo) > 200:
-                        resumo = resumo[:197].rstrip() + "..."
-                    
-                    if resumo:
-                        line = f"    Resumo: {resumo}"
-                        if url:
-                            line += f" Ver no DOU ({url})"
-                        text_lines.append(line)
-                    else:
-                        # se não tiver resumo, ainda assim mostra o link
-                        if url:
-                            text_lines.append(f"    Ver no DOU ({url})")
-                    
-                    text_lines.append("")
-
+                text_lines.append("")
                 continue
 
-            # --- item normal ---
+            # --- item normal (igual ao seu formato atual) ---
             titulo = (it.get("titulo") or "").strip()
             org = (it.get("orgao") or "").strip()
             data_pub = (it.get("data") or "").strip()
@@ -857,7 +830,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
             if data_pub:
                 footer_parts.append(data_pub)
             if url:
-                footer_parts.append(f"Ver no DOU ({url})")
+                footer_parts.append(f"ver no DOU ({url})")
 
             if footer_parts:
                 text_lines.append(" · ".join(footer_parts))
@@ -871,9 +844,14 @@ def send_email(items: list[dict], cfg: dict) -> None:
     if ai_enabled:
         text_lines.append("Resumos gerados automaticamente por IA. Sempre confira o texto oficial no DOU.")
 
+    # ✅ RODAPÉ (aqui)
+    text_lines.append("")
+    text_lines.append("Sugestões de melhoria, inclusão de termos ou ajustes nos critérios de busca:")
+    text_lines.append("entre em contato com Diogo Neis (diogo.neis@martinelliaud.com.br).")
+
     text_body = "\n".join(text_lines)
 
-    # ----------------- HTML -----------------
+    # ----------------- HTML (mantém como estava) -----------------
     html_lines: list[str] = []
     html_lines.append('<meta http-equiv="Content-Type" content="text/html; charset=utf-8">')
     html_lines.append('<div style="font-family:Arial,Helvetica,sans-serif">')
@@ -891,78 +869,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
     if not items:
         html_lines.append("<p>Não foram encontradas publicações relevantes para os critérios atuais.</p>")
     else:
-        for it in items_plain:
-
-            # ---------- bloco agrupado (HTML) ----------
-            if isinstance(it, dict) and it.get("_is_group"):
-                group_key = it.get("group_key") or "Publicações repetidas"
-                group_list = it.get("items") or []
-
-                org0 = (group_list[0].get("orgao") or "").strip() if group_list else ""
-                org_short = shorten_orgao(org0) if org0 else ""
-
-                nums = [_extract_num(x) for x in group_list]
-                ints = [v for v in (_num_to_int(n) for n in nums) if v is not None]
-                faixa = ""
-                if len(ints) == len(group_list) and ints:
-                    faixa = f" (nº {min(ints)} a {max(ints)})"
-
-                tipo = _guess_tipo(group_key)
-                header = f"Foram publicadas {len(group_list)} {tipo}{faixa}: {group_key}"
-                if org_short:
-                    header += f" · {org_short}"
-
-                html_lines.append("<p style='margin-bottom:12px;'>")
-                html_lines.append(f"<b>{_escape_html(header)}</b><br/>")
-                html_lines.append("<ul style='margin:6px 0 0 18px;padding:0;'>")
-
-                for g in group_list:
-                    num = _extract_num(g)
-                    data_pub = (g.get("data") or "").strip()
-                    url = (g.get("url") or "").strip()
-
-                    parts = []
-                    if num:
-                        parts.append(f"Nº {num}")
-                    else:
-                        parts.append((g.get("titulo") or "").strip() or "Sem título")
-                    if data_pub:
-                        parts.append(data_pub)
-
-                    resumo_editorial = (g.get("resumo_editorial") or "").strip()
-                    resumo_ia = clean_summary((g.get("resumo_ia") or "").strip())
-                    snippet = extract_body_snippet(g.get("texto_bruto") or "", max_chars=220)
-                    resumo = (resumo_ia or resumo_editorial or snippet).replace("\n", " ").strip()
-
-                    li_text = " · ".join(parts)
-                    
-                    # corta para 200 no HTML também (igual plain)
-                    if len(resumo) > 200:
-                        resumo = resumo[:197].rstrip() + "..."
-
-                    if url:
-                        html_lines.append(
-                            "<li style='margin:0 0 8px 0;'>"
-                            + f"{_escape_html(li_text)}"
-                            + " · "
-                            + f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>Ver no DOU</a>"
-                            + (f"<br/><span style='font-size:12px;color:#555;'><b>Resumo:</b> {_escape_html(resumo)}</span>" if resumo else "")
-                            + "</li>"
-                        )
-
-                    else:
-                        html_lines.append(
-                            "<li style='margin:0 0 8px 0;'>"
-                            + f"{_escape_html(li_text)}"
-                            + (f"<br/><span style='font-size:12px;color:#555;'><b>Resumo:</b> {_escape_html(resumo)}</span>" if resumo else "")
-                            + "</li>"
-                        )
-
-                html_lines.append("</ul>")
-                html_lines.append("</p>")
-                continue
-
-            # ---------- item normal (HTML) ----------
+        for it in items:
             titulo = (it.get("titulo") or "").strip()
             org = (it.get("orgao") or "").strip()
             data_pub = (it.get("data") or "").strip()
@@ -1003,7 +910,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
                 footer_parts.append(_escape_html(data_pub))
             if url:
                 footer_parts.append(
-                    f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>Ver no DOU</a>"
+                    f"<a href='{_escape_html(url)}' target='_blank' rel='noopener'>ver no DOU</a>"
                 )
 
             if footer_parts:
@@ -1035,6 +942,16 @@ def send_email(items: list[dict], cfg: dict) -> None:
             "Sempre confira o texto oficial no DOU."
             "</p>"
         )
+
+    # ✅ RODAPÉ (aqui)
+    html_lines.append(
+        "<hr style='border:0;border-top:1px solid #ddd;margin:16px 0;'>"
+        "<p style='font-size:12px;color:#666;margin:0;'>"
+        "<b>Sugestões e melhorias:</b> inclusão de termos ou ajustes nos critérios de busca — "
+        "entre em contato com <b>Diogo Neis</b> "
+        "(<a href='mailto:diogo.neis@martinelliaud.com.br'>diogo.neis@martinelliaud.com.br</a>)."
+        "</p>"
+    )
 
     html_lines.append("</div>")
     html_body = "\n".join(html_lines)
@@ -1315,7 +1232,7 @@ async def collect_links_from_listing(page, cfg: dict, broad: bool = True) -> lis
             await add_candidate(href, text, reason="shadow")
 
     items = [{"url": u, "titulo": t} for u, t in links.items()]
-    print(f"[DEBUG] collect_links_from_listing -> {len(items)} link(s). Discards: {discards}")
+    print(f"[DEBUG] collect_links_from_listing -> {len(items)} link(s). Discards: {discards}", flush=True)
     return items
 
 
@@ -1367,12 +1284,12 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
             break
         added = 0
         for it in items:
-            u = it["url"]
-            if u not in seen_urls:
+            u = it.get("url")
+            if u and u not in seen_urls:
                 seen_urls.add(u)
                 all_items.append(it)
                 added += 1
-        print(f"[DEBUG] Página {page_idx+1}: {len(items)} itens, {added} novos (total acumulado: {len(all_items)}).")
+        print(f"[DEBUG] Página {page_idx+1}: {len(items)} itens, {added} novos (total acumulado: {len(all_items)}).", flush=True)
 
         # Tenta avançar para a próxima página
         next_clicked = False
@@ -1392,17 +1309,22 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
                 await page.wait_for_timeout(1000)
                 more = await collect_links_from_listing(page, cfg, broad=False)
-                print(f"[DEBUG] Fallback scroll infinito: {len(more) if more else 0} novos itens.")
+                print(f"[DEBUG] Fallback scroll infinito: {len(more) if more else 0} novos itens.", flush=True)
                 if not more:
                     break
                 for it in more:
-                    u = it["url"]
-                    if u not in seen_urls:
+                    u = it.get("url")
+                    if u and u not in seen_urls:
                         seen_urls.add(u)
                         all_items.append(it)
                 break
             except Exception:
                 break
+
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception:
+            pass
 
         page_idx += 1
 
@@ -1668,6 +1590,23 @@ def build_seen_keys(url: str):
 # ---------------------------------------------------------------------------
 
 @retry(wait=wait_fixed(2), stop=stop_after_attempt(3))
+async def goto_with_retry(page, url: str, *, attempts: int = 3, timeout_ms: int = 25000) -> bool:
+    """Tenta navegar para uma URL com retries curtos.
+
+    - Usa wait_until='domcontentloaded' (mais previsível que 'networkidle' no portal do DOU).
+    - Retorna True se carregou, False se falhou em todas as tentativas.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            return True
+        except Exception as e:
+            if attempt == attempts:
+                print(f"[WARN] goto falhou ({attempts}x): {e}", flush=True)
+                return False
+            await page.wait_for_timeout(800 * attempt)
+
+
 async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
     """
     Executa a busca principal no DOU combinando frases e seções.
@@ -1726,13 +1665,10 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
     for phrase in phrases:
         for sec in sections:
             direct_url = build_direct_query_url(phrase, period, sec)
-            print(f"[DEBUG] Direct URL: {direct_url}")
-            try:
-                await page.goto(direct_url, wait_until="networkidle", timeout=45000)
-            except Exception as e:
-                print(f"[WARN] Falha ao carregar URL direta: {e}")
+            print(f"[DEBUG] Direct URL: {direct_url}", flush=True)
+            ok = await goto_with_retry(page, direct_url, attempts=3, timeout_ms=25000)
+            if not ok:
                 continue
-
             await wait_results(page, timeout_ms=20000)
             items = await collect_paginated_results(page, cfg, broad=True, max_pages=max_pages)
 
@@ -1746,16 +1682,42 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
                     fname = artifacts_dir / f"listing_direct_{sec}_{safe_phrase}.html"
                     with open(fname, "w", encoding="utf-8") as f:
                         f.write(content)
-                    print(f"[DEBUG] Nenhum item via URL direta; HTML salvo em {fname}")
+                    print(f"[DEBUG] Nenhum item via URL direta; HTML salvo em {fname}", flush=True)
                 except Exception as e:
-                    print(f"[WARN] Falha ao salvar HTML de debug: {e}")
+                    print(f"[WARN] Falha ao salvar HTML de debug: {e}", flush=True)
             else:
                 for it in items:
                     all_results.add((it["url"], it.get("titulo") or ""))
 
     listing = [{"url": u, "titulo": t} for (u, t) in all_results]
-    print(f"[DEBUG] query_dou -> {len(listing)} itens únicos (via URL direta).")
+    print(f"[DEBUG] query_dou -> {len(listing)} itens únicos (via URL direta).", flush=True)
     return listing
+
+
+
+
+# ---------------------------------------------------------------------------
+# Marcadores de tempo (profiling simples)
+# ---------------------------------------------------------------------------
+
+class TimeMarks:
+    """Marcadores de tempo para entender gargalos do robô.
+    Formato compatível com o log:
+    [DOU] 14:03:10 +   0.28s | total    0.29s | mensagem
+    """
+
+    def __init__(self, label: str = "DOU") -> None:
+        self.label = label
+        self.t0 = time.perf_counter()
+        self.last = self.t0
+
+    def mark(self, msg: str) -> None:
+        now = time.perf_counter()
+        delta = now - self.last
+        total = now - self.t0
+        self.last = now
+        ts = datetime.now(timezone(timedelta(hours=-3))).strftime("%H:%M:%S")
+        print(f"[{self.label}] {ts} + {delta:6.2f}s | total {total:7.2f}s | {msg}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1775,16 +1737,26 @@ async def run() -> None:
     - (Opcional) Gera resumos com IA
     - Ordena, envia e-mail e atualiza seen.json
     """
+    tm = TimeMarks('DOU')
+    tm.mark('run() iniciou')
     cfg = load_config()
+    tm.mark('config carregada (load_config)')
     if not isinstance(cfg, dict):
         raise RuntimeError("config.yml invalido ou vazio. Garanta as chaves 'search' e 'email'.")
 
+    tm.mark('antes de load_seen()')
     seen = load_seen()
+    tm.mark('estado carregado (seen.json)')
     enrich = bool(cfg.get("search", {}).get("enrich_listing", True))
     phrases = cfg.get("search", {}).get("phrases", [])
 
+    tm.mark('antes de async_playwright()')
     async with async_playwright() as p:
+        tm.mark('async_playwright() OK (contexto aberto)')
+        tm.mark('antes de chromium.launch()')
         browser = await p.chromium.launch(args=["--no-sandbox"])
+        tm.mark('chromium.launch() OK')
+        tm.mark('antes de new_context()')
         context = await browser.new_context(
             locale="pt-BR",
             user_agent=(
@@ -1792,9 +1764,23 @@ async def run() -> None:
                 "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
             ),
         )
+        tm.mark('new_context() OK')
+        tm.mark('antes de new_page()')
         page = await context.new_page()
+        # Otimização: bloquear recursos pesados (imagens/fontes/css) para acelerar a listagem
+        async def _route_filter(route):
+            rtype = route.request.resource_type
+            if rtype in ("image", "media", "font", "stylesheet"):
+                await route.abort()
+            else:
+                await route.continue_()
 
+        await page.route("**/*", _route_filter)
+        tm.mark('new_page() OK')
+
+        tm.mark('antes de query_dou() (busca/listagem)')
         listing = await query_dou(page, cfg, phrases)
+        tm.mark('query_dou() finalizou')
         if not listing:
             print("Nenhuma publicação encontrada para os critérios configurados.")
             if str(os.getenv("FORCE_TEST_EMAIL", "")).lower() in {"1", "true", "yes"}:
@@ -1814,6 +1800,7 @@ async def run() -> None:
             return
 
         relevant = []
+        tm.mark(f'início do enrich (itens={len(listing)})')
         for it in listing:
             if enrich:
                 v = await enrich_listing_item(page, it)
@@ -1837,6 +1824,7 @@ async def run() -> None:
 
             relevant.append(v)
 
+        tm.mark(f'fim do enrich (relevant={len(relevant)})')
         await context.close()
         await browser.close()
 
@@ -1846,13 +1834,13 @@ async def run() -> None:
         today_br = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y")
         before = len(relevant)
         relevant = [r for r in relevant if (r.get("data") or "").strip() == today_br]
-        print(f"[DEBUG] Filtro edição do dia {today_br}: {before} -> {len(relevant)} item(ns).")
+        print(f"[DEBUG] Filtro edição do dia {today_br}: {before} -> {len(relevant)} item(ns).", flush=True)
 
     # ---- filtro opcional por órgão ----
     if cfg.get("filters", {}).get("orgao_keywords"):
         antes = len(relevant)
         relevant = [r for r in relevant if orgao_allowed(r.get("orgao"), cfg)]
-        print(f"[DEBUG] Filtro por órgão: {antes} -> {len(relevant)} item(ns) após aplicar orgao_keywords")
+        print(f"[DEBUG] Filtro por órgão: {antes} -> {len(relevant)} item(ns) após aplicar orgao_keywords", flush=True)
 
     # ---- ordenar por data desc (e por título para estabilizar) ----
     def _sort_key(r):
@@ -1887,17 +1875,24 @@ async def run() -> None:
             # Pequena pausa para ser gentil com a API
             time.sleep(1)
 
-    if relevant:
-        send_email(relevant, cfg)
-        for r in relevant:
-            url_key, id_key = build_seen_keys(r["url"])
-            seen.add(url_key)
-            if id_key:
-                seen.add(id_key)
-        save_seen(seen)
-        print(f"{len(relevant)} item(ns) novos registrados no seen.json.")
-    else:
-        print("Sem novidades para enviar.")
+            if relevant:
+                tm.mark("antes de send_email()")
+                send_email(relevant, cfg)
+                tm.mark("depois de send_email()")
+            
+                for r in relevant:
+                    url_key, id_key = build_seen_keys(r["url"])
+                    seen.add(url_key)
+                    if id_key:
+                        seen.add(id_key)
+            
+                tm.mark("antes de save_seen()")
+                save_seen(seen)
+                tm.mark("depois de save_seen()")
+            
+                print(f"{len(relevant)} item(ns) novos registrados no seen.json.")
+            else:
+                print("Sem novidades para enviar.")
 
 
 # ---------------------------------------------------------------------------
