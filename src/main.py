@@ -1081,7 +1081,13 @@ async def wait_results(page, timeout_ms=20000):
     - Algum link típico de resultado (a.resultado-item-titulo, /web/dou/-/, etc.), ou
     - Uma mensagem de 'Nenhum resultado'.
     """
-    loc_none = page.get_by_text("Nenhum resultado", exact=False)
+    loc_none_list = [
+        page.get_by_text("Nenhum resultado", exact=False),
+        page.get_by_text("Não foram encontrados", exact=False),
+        page.get_by_text("Nao foram encontrados", exact=False),
+        page.get_by_text("0 resultado", exact=False),
+        page.get_by_text("0 resultados", exact=False),
+    ]
     loc_candidates = [
         page.locator("a.resultado-item-titulo"),
         page.locator("a[href*='/web/dou/-/']"),
@@ -1090,8 +1096,9 @@ async def wait_results(page, timeout_ms=20000):
     deadline = datetime.now() + timedelta(milliseconds=timeout_ms)
     while datetime.now() < deadline:
         try:
-            if await loc_none.count() > 0:
-                return
+            for loc_none in loc_none_list:
+                if await loc_none.count() > 0:
+                    return
         except Exception:
             pass
         for loc in loc_candidates:
@@ -1304,6 +1311,11 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
                 all_items.append(it)
                 added += 1
         print(f"[DEBUG] Página {page_idx+1}: {len(items)} itens, {added} novos (total acumulado: {len(all_items)}).", flush=True)
+        # Se não surgiram itens novos nesta página (ex.: paginação não avançou ou acabou), não vale insistir.
+        if page_idx > 0 and added == 0:
+            print("[DEBUG] Sem novos itens nesta página; interrompendo paginação.", flush=True)
+            break
+
 
         # Tenta avançar para a próxima página
         next_clicked = False
@@ -1818,6 +1830,17 @@ async def run() -> None:
             await context.close()
             await browser.close()
             return
+
+        # Flags de envio (boletim diário / testes)
+        email_cfg = cfg.get("email", {}) or {}
+        always_send = str(os.getenv("ALWAYS_SEND_EMAIL", "")).lower() in {"1", "true", "yes"} or bool(email_cfg.get("always_send"))
+        ignore_seen = str(os.getenv("IGNORE_SEEN", "")).lower() in {"1", "true", "yes"} or bool(cfg.get("search", {}).get("ignore_seen")) or always_send
+        # Se o período efetivo for "today", por padrão enviamos boletim (ignora seen),
+        # a menos que USE_SEEN_TODAY=1 esteja definido.
+        period_eff = (cfg.get("search", {}) or {}).get("period_effective") or (cfg.get("search", {}) or {}).get("period") or ""
+        if str(os.getenv("USE_SEEN_TODAY", "")).lower() not in {"1", "true", "yes"}:
+            if str(period_eff).strip().lower() in {"today", "day", "dia", "hoje", "edicao", "edição"}:
+                ignore_seen = True
 
         relevant = []
         tm.mark(f'início do enrich (itens={len(listing)})')
