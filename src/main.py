@@ -602,9 +602,8 @@ def send_email(items: list[dict], cfg: dict) -> None:
     # ----------------- Agrupamento (plain text) -----------------
 
     def _norm_key(s: str) -> str:
-        # Importante: aplicar unidecode ANTES de upper(), pois unidecode("Nº") vira "No"
-        s = unidecode((s or ""))
-        s = s.upper()
+        s = (s or "").upper()
+        s = unidecode(s)
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
@@ -616,8 +615,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
         t = _norm_key(title)
 
         # remove "Nº 9.853", "N 236", "n° 1.688", etc.
-        # unidecode("n°") costuma virar "NDEG"
-        t = re.sub(r"\bNDEG\s*[\d\.\-\/]+", "", t)
         t = re.sub(r"\bN[ºO\.\s]*\s*[\d\.\-\/]+", "", t)
 
         # remove "DE 30 DE JANEIRO DE 2026" / "DE 11 DE DEZEMBRO DE 2025"
@@ -741,17 +738,6 @@ def send_email(items: list[dict], cfg: dict) -> None:
     subject = f"{prefix} Boletim diário – {hoje_str}"
 
     phrases = cfg.get("search", {}).get("phrases", [])
-
-    # --- política de envio ---
-    # Por padrão, o robô envia apenas itens "novos" (não vistos no seen.json).
-    # Para testes/manutenção, você pode:
-    # - IGNORE_SEEN=1: enviar mesmo que já tenha sido visto
-    # - SEND_EMPTY_EMAIL=1: enviar mesmo sem itens (boletim "sem novidades")
-    # - ALWAYS_SEND_EMAIL=1: equivale a IGNORE_SEEN=1 (modo boletim)
-    email_cfg = cfg.get("email", {}) or {}
-    always_send = str(os.getenv("ALWAYS_SEND_EMAIL", "")).lower() in {"1", "true", "yes"} or bool(email_cfg.get("always_send"))
-    send_empty = str(os.getenv("SEND_EMPTY_EMAIL", "")).lower() in {"1", "true", "yes"} or bool(email_cfg.get("send_empty"))
-    ignore_seen = str(os.getenv("IGNORE_SEEN", "")).lower() in {"1", "true", "yes"} or bool(cfg.get("search", {}).get("ignore_seen")) or always_send
     crit_line = "; ".join(phrases) if phrases else "(frases não especificadas)"
 
     org_filters = (cfg.get("filters") or {}).get("orgao_keywords") or []
@@ -1081,13 +1067,7 @@ async def wait_results(page, timeout_ms=20000):
     - Algum link típico de resultado (a.resultado-item-titulo, /web/dou/-/, etc.), ou
     - Uma mensagem de 'Nenhum resultado'.
     """
-    loc_none_list = [
-        page.get_by_text("Nenhum resultado", exact=False),
-        page.get_by_text("Não foram encontrados", exact=False),
-        page.get_by_text("Nao foram encontrados", exact=False),
-        page.get_by_text("0 resultado", exact=False),
-        page.get_by_text("0 resultados", exact=False),
-    ]
+    loc_none = page.get_by_text("Nenhum resultado", exact=False)
     loc_candidates = [
         page.locator("a.resultado-item-titulo"),
         page.locator("a[href*='/web/dou/-/']"),
@@ -1096,9 +1076,8 @@ async def wait_results(page, timeout_ms=20000):
     deadline = datetime.now() + timedelta(milliseconds=timeout_ms)
     while datetime.now() < deadline:
         try:
-            for loc_none in loc_none_list:
-                if await loc_none.count() > 0:
-                    return
+            if await loc_none.count() > 0:
+                return
         except Exception:
             pass
         for loc in loc_candidates:
@@ -1311,11 +1290,6 @@ async def collect_paginated_results(page, cfg: dict, broad: bool, max_pages: int
                 all_items.append(it)
                 added += 1
         print(f"[DEBUG] Página {page_idx+1}: {len(items)} itens, {added} novos (total acumulado: {len(all_items)}).", flush=True)
-        # Se não surgiram itens novos nesta página (ex.: paginação não avançou ou acabou), não vale insistir.
-        if page_idx > 0 and added == 0:
-            print("[DEBUG] Sem novos itens nesta página; interrompendo paginação.", flush=True)
-            break
-
 
         # Tenta avançar para a próxima página
         next_clicked = False
@@ -1687,36 +1661,30 @@ async def query_dou(page, cfg: dict, phrases: list[str]) -> list[dict]:
     max_pages = int(cfg.get("pagination", {}).get("max_pages", 5))
     all_results = set()
 
-    save_empty_html = str(os.getenv("SAVE_EMPTY_LISTING_HTML", "")).lower() in {"1", "true", "yes"}
-
     # Busca direta via URL montada
     for phrase in phrases:
         for sec in sections:
             direct_url = build_direct_query_url(phrase, period, sec)
             print(f"[DEBUG] Direct URL: {direct_url}", flush=True)
-            t0 = time.perf_counter()
             ok = await goto_with_retry(page, direct_url, attempts=3, timeout_ms=25000)
             if not ok:
                 continue
+            await wait_results(page, timeout_ms=20000)
             items = await collect_paginated_results(page, cfg, broad=True, max_pages=max_pages)
-            dt = time.perf_counter() - t0
-            phrase_dbg = (phrase[:35] + "…") if len(phrase) > 35 else phrase
-            print(f"[DEBUG] Query '{phrase_dbg}' ({sec}) -> {len(items)} item(ns) em {dt:.2f}s", flush=True)
 
             if not items:
-                # Salva HTML para debug (opcional; pode ficar pesado quando há muitas frases)
-                if save_empty_html:
-                    try:
-                        content = await page.content()
-                        artifacts_dir = ROOT / "artifacts"
-                        artifacts_dir.mkdir(parents=True, exist_ok=True)
-                        safe_phrase = re.sub(r"[^0-9a-zA-Z_-]+", "_", normalize(phrase))[:40]
-                        fname = artifacts_dir / f"listing_direct_{sec}_{safe_phrase}.html"
-                        with open(fname, "w", encoding="utf-8") as f:
-                            f.write(content)
-                        print(f"[DEBUG] Nenhum item via URL direta; HTML salvo em {fname}", flush=True)
-                    except Exception as e:
-                        print(f"[WARN] Falha ao salvar HTML de debug: {e}", flush=True)
+                # Salva HTML para debug
+                try:
+                    content = await page.content()
+                    artifacts_dir = ROOT / "artifacts"
+                    artifacts_dir.mkdir(parents=True, exist_ok=True)
+                    safe_phrase = re.sub(r"[^0-9a-zA-Z_-]+", "_", normalize(phrase))[:40]
+                    fname = artifacts_dir / f"listing_direct_{sec}_{safe_phrase}.html"
+                    with open(fname, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    print(f"[DEBUG] Nenhum item via URL direta; HTML salvo em {fname}", flush=True)
+                except Exception as e:
+                    print(f"[WARN] Falha ao salvar HTML de debug: {e}", flush=True)
             else:
                 for it in items:
                     all_results.add((it["url"], it.get("titulo") or ""))
@@ -1831,17 +1799,6 @@ async def run() -> None:
             await browser.close()
             return
 
-        # Flags de envio (boletim diário / testes)
-        email_cfg = cfg.get("email", {}) or {}
-        always_send = str(os.getenv("ALWAYS_SEND_EMAIL", "")).lower() in {"1", "true", "yes"} or bool(email_cfg.get("always_send"))
-        ignore_seen = str(os.getenv("IGNORE_SEEN", "")).lower() in {"1", "true", "yes"} or bool(cfg.get("search", {}).get("ignore_seen")) or always_send
-        # Se o período efetivo for "today", por padrão enviamos boletim (ignora seen),
-        # a menos que USE_SEEN_TODAY=1 esteja definido.
-        period_eff = (cfg.get("search", {}) or {}).get("period_effective") or (cfg.get("search", {}) or {}).get("period") or ""
-        if str(os.getenv("USE_SEEN_TODAY", "")).lower() not in {"1", "true", "yes"}:
-            if str(period_eff).strip().lower() in {"today", "day", "dia", "hoje", "edicao", "edição"}:
-                ignore_seen = True
-
         relevant = []
         tm.mark(f'início do enrich (itens={len(listing)})')
         for it in listing:
@@ -1861,8 +1818,8 @@ async def run() -> None:
             key_url = v["url"]
             url_key, id_key = build_seen_keys(key_url)
 
-            # Compatibilidade com histórico (seen.json)
-            if (not ignore_seen) and ((key_url in seen) or (url_key in seen) or (id_key and id_key in seen)):
+            # Compatibilidade com histórico
+            if (key_url in seen) or (url_key in seen) or (id_key and id_key in seen):
                 continue
 
             relevant.append(v)
@@ -1921,28 +1878,24 @@ async def run() -> None:
 
 
     # ---- envio e atualização do estado ----
-    if relevant or send_empty:
+    if relevant:
         tm.mark("antes de send_email()")
         send_email(relevant, cfg)
         tm.mark("depois de send_email()")
 
-        if relevant:
-            for r in relevant:
-                url_key, id_key = build_seen_keys(r["url"])
-                seen.add(url_key)
-                if id_key:
-                    seen.add(id_key)
+        for r in relevant:
+            url_key, id_key = build_seen_keys(r["url"])
+            seen.add(url_key)
+            if id_key:
+                seen.add(id_key)
 
-            tm.mark("antes de save_seen()")
-            save_seen(seen)
-            tm.mark("depois de save_seen()")
+        tm.mark("antes de save_seen()")
+        save_seen(seen)
+        tm.mark("depois de save_seen()")
 
-            print(f"{len(relevant)} item(ns) registrados no seen.json.", flush=True)
-        else:
-            print("Boletim enviado sem itens (send_empty/SEND_EMPTY_EMAIL).", flush=True)
+        print(f"{len(relevant)} item(ns) novos registrados no seen.json.", flush=True)
     else:
         print("Sem novidades para enviar.", flush=True)
-
 
 
 # ---------------------------------------------------------------------------
