@@ -149,23 +149,12 @@ email:
 
   # Destinatários principais (TO)
   to:
-    - "diogo.neis@martinelliaud.com.br"
-    #- "karine.batista@martinelliaud.com.br"
-    #- "gustavo@martinelliaud.com.br"
-    #- "cassiano@martinelliaud.com.br"
-    #- "ueliton.sinhoreto@martinelliaud.com.br"
-    #- "hiorhana@martinelliaud.com.br"
-    #- "julia.simas@martinelliaud.com.br"
-    #- "larissa.bernardo@martinelliaud.com.br"
-    #- "flavio@martinelliaud.com.br"
-    #- "elaine.peters@martinelliaud.com.br"
+    - "diogo.neis@martinelliaud.com.br"    
 
   # Cópia (CC) - pode ser sobrescrito via MAIL_CC
   cc:
     - "dvneis@gmail.com"
-    - "julia.simas@martinelliaud.com.br"
-    - "larissa.bernardo@martinelliaud.com.br"
-    - "elaine.peters@martinelliaud.com.br"
+    
     # - "outro-cc@exemplo.com"
 
   # Cópia oculta (BCC) - pode ser sobrescrito via MAIL_BCC
@@ -174,11 +163,11 @@ email:
     # - "backup@exemplo.com"
 
   # Remetente
-  from_: "monitor.lotes.martinelliaud@gmail.com"
+  from_: "relay-smtp@martinelliaud.com.br"
 
   # Configuração SMTP (pode ser sobrescrita via env vars)
   smtp:
-    host: "smtp.gmail.com"
+    host: "smtp-mail.outlook.com"
     port: 587
     timeout: 30
     use_tls: true
