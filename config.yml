@@ -163,6 +163,9 @@ email:
   # Cópia (CC) - pode ser sobrescrito via MAIL_CC
   cc:
     - "dvneis@gmail.com"
+    - "julia.simas@martinelliaud.com.br"
+    - "larissa.bernardo@martinelliaud.com.br"
+    - "elaine.peters@martinelliaud.com.br"
     # - "outro-cc@exemplo.com"
 
   # Cópia oculta (BCC) - pode ser sobrescrito via MAIL_BCC
