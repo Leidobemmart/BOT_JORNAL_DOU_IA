@@ -615,7 +615,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
         t = _norm_key(title)
 
         # remove "Nº 9.853", "N 236", "n° 1.688", etc.
-        t = re.sub(r"\bN[ºO\.\s]*\s*[\d\.\-\/]+", "", t)
+        t = re.sub(r"\bN[ºO°\.\s]*\s*[\d\.\-\/]+", "", t)
 
         # remove "DE 30 DE JANEIRO DE 2026" / "DE 11 DE DEZEMBRO DE 2025"
         t = re.sub(r"\bDE\s+\d{1,2}\s+DE\s+[A-Z]+(?:\s+DE\s+\d{4})?\b", "", t)
@@ -635,7 +635,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
             return num
 
         t = (it.get("titulo") or "")
-        m = re.search(r"\bN[ºo\.]?\s*([\d\.]+(?:/\d{4})?)", t, re.I)
+        m = re.search(r"\bN[ºo°\.]?\s*([\d\.]+(?:/\d{4})?)", t, re.I)
         return m.group(1).strip() if m else ""
 
     def _num_to_int(num: str):
@@ -660,7 +660,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
                 return tipo.title()
         return "publicações"
 
-    def group_items_for_plain_text_inplace(items_in: list[dict], min_reps: int = 4) -> list[dict]:
+    def group_items_for_plain_text_inplace(items_in: list[dict], min_reps: int = 3) -> list[dict]:
         """
         Agrupa mantendo a ordem original:
         - identifica buckets por group_key
@@ -746,7 +746,7 @@ def send_email(items: list[dict], cfg: dict) -> None:
     ai_enabled = bool((cfg.get("ai") or {}).get("summaries", {}).get("enabled"))
 
     # aplica agrupamento SOMENTE no plain text
-    items_plain = group_items_for_plain_text_inplace(items, min_reps=4)
+    items_plain = group_items_for_plain_text_inplace(items, min_reps=3)
 
     # ----------------- TEXTO SIMPLES -----------------
     text_lines: list[str] = []
