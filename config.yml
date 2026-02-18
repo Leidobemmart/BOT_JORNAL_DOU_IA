@@ -157,16 +157,16 @@ email:
     - "cassiano@martinelliaud.com.br"
     - "ueliton.sinhoreto@martinelliaud.com.br"
     - "ronaldo.varela@martinelliaud.com.br"
-   # - "amanda.holz@martinelliaud.com.br"
-   # - "andre.rosa@martinelliaud.com.br"
-   # - "taciano@martinelliaud.com.br"
-   # - "camila.silva@martinelliaud.com.br"
-   # - "maria.gil@martinelliaud.com.br"
-   # - "joseane.pereira@martinelliaud.com.br"
-   # - "laiz.borba@martinelliaud.com.br"
-   # - "evelin.nilsen@martinelliaud.com.br"
-   # - "kallita@martinelliaud.com.br"
-   # - "maria.fronza@martinelliaud.com.br"
+    - "amanda.holz@martinelliaud.com.br"
+    - "andre.rosa@martinelliaud.com.br"
+    - "taciano@martinelliaud.com.br"
+    - "camila.silva@martinelliaud.com.br"
+    - "maria.gil@martinelliaud.com.br"
+    - "joseane.pereira@martinelliaud.com.br"
+    - "laiz.borba@martinelliaud.com.br"
+    - "evelin.nilsen@martinelliaud.com.br"
+    - "kallita@martinelliaud.com.br"
+    - "maria.fronza@martinelliaud.com.br"
 
   # Cópia (CC) - pode ser sobrescrito via MAIL_CC
   cc:
@@ -184,11 +184,11 @@ email:
     # - "backup@exemplo.com"
 
   # Remetente
-  from_: "monitor.lotes.martinelliaud@gmail.com"
+  from_: "relay-smtp@martinelliaud.com.br"
 
   # Configuração SMTP (pode ser sobrescrita via env vars)
   smtp:
-    host: "smtp.gmail.com"
+    host: "smtp-mail.outlook.com"
     port: 587
     timeout: 30
     use_tls: true
