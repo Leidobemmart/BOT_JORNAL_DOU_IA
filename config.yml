@@ -157,6 +157,15 @@ email:
     - "cassiano@martinelliaud.com.br"
     - "ueliton.sinhoreto@martinelliaud.com.br"
     - "ronaldo.varela@martinelliaud.com.br"
+    - "hiorhana@martinelliaud.com.br"
+    - "julia.simas@martinelliaud.com.br"
+    - "larissa.bernardo@martinelliaud.com.br"
+    - "elaine.peters@martinelliaud.com.br"
+    - "flavio@martinelliaud.com.br"    
+
+  # Cópia (CC) - pode ser sobrescrito via MAIL_CC
+  cc:
+    - "dvneis@gmail.com"
     - "amanda.holz@martinelliaud.com.br"
     - "andre.rosa@martinelliaud.com.br"
     - "taciano@martinelliaud.com.br"
@@ -167,15 +176,6 @@ email:
     - "evelin.nilsen@martinelliaud.com.br"
     - "kallita@martinelliaud.com.br"
     - "maria.fronza@martinelliaud.com.br"
-
-  # Cópia (CC) - pode ser sobrescrito via MAIL_CC
-  cc:
-    - "dvneis@gmail.com"
-    - "hiorhana@martinelliaud.com.br"
-    - "julia.simas@martinelliaud.com.br"
-    - "larissa.bernardo@martinelliaud.com.br"
-    - "flavio@martinelliaud.com.br"
-    - "elaine.peters@martinelliaud.com.br"
     # - "outro-cc@exemplo.com"
 
   # Cópia oculta (BCC) - pode ser sobrescrito via MAIL_BCC
